@@ -88,8 +88,8 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
     case QEvent::KeyPress: {
         auto *key = static_cast<QKeyEvent *>(event);
         // While the path bar or a text box has focus, the keys belong to it:
-        // plain letters must not switch tools and the path-bar shortcuts
-        // must not re-prefill over what is being typed.
+        // not the tool keys, not the draw shortcuts, not Space — and the
+        // path-bar shortcuts must not re-prefill over what is being typed.
         auto *focus = m_window ? m_window->activeFocusItem() : nullptr;
         if (focus && focus->flags().testFlag(QQuickItem::ItemAcceptsInputMethod))
             return QObject::eventFilter(watched, event);

@@ -12,6 +12,7 @@
 #include <QtTest>
 
 #include "palette.h"
+#include "page.h"
 #include "pathcompleter.h"
 #include "tools.h"
 
@@ -476,6 +477,52 @@ private slots:
         QTest::keyClick(&bar.window, Qt::Key_O, Qt::MetaModifier);
         QCOMPARE(spy.count(), 2);
         QCOMPARE(spy.at(1).at(0).toString(), "open");
+    }
+
+    void pageShortcutsAreGuardedToo()
+    {
+        Bar bar("open");
+
+        // A page behind the bar, wired the way main.cpp wires it: the focus
+        // guard must cover the draw shortcuts and Space-panning too, not
+        // just the tool keys.
+        bar.window.resize(800, 600);
+        Page *page = new Page(bar.window.contentItem());
+        page->setSize(QSizeF(800, 600));
+        bar.tools.setPage(page);
+
+        // On the canvas: Draw tool and a stroke as material for undo and
+        // the fresh-page shortcut.
+        QTest::keyClick(&bar.window, Qt::Key_Escape);
+        QTest::qWait(150);
+        QTest::keyClick(&bar.window, Qt::Key_D);
+        QCOMPARE(bar.tools.tool(), Tools::Draw);
+        QTest::mouseMove(&bar.window, {100, 300});
+        QTest::mousePress(&bar.window, Qt::LeftButton, {}, {100, 300});
+        QTest::mouseMove(&bar.window, {300, 300});
+        QTest::mouseRelease(&bar.window, Qt::LeftButton, {}, {300, 300});
+        QCOMPARE(page->strokes().size(), 1);
+
+        // The bar is back with focus: none of it may reach the page.
+        QMetaObject::invokeMethod(bar.item, "show", Q_ARG(QVariant, QStringLiteral("save")));
+        QTest::keyPress(&bar.window, Qt::Key_Space);
+        QVERIFY(bar.window.cursor().shape() != Qt::OpenHandCursor);
+        QTest::keyRelease(&bar.window, Qt::Key_Space);
+        const QPointF worldBefore = page->worldPos();
+        QTest::keyClick(&bar.window, Qt::Key_Z, Qt::ControlModifier);
+        QTest::keyClick(&bar.window, Qt::Key_N, Qt::ControlModifier);
+        QTest::keyClick(&bar.window, Qt::Key_Plus, Qt::ControlModifier);
+        QTest::keyClick(&bar.window, Qt::Key_0, Qt::ControlModifier);
+        QTest::qWait(400); // an unguarded zoom step animates in 120 ms
+        QCOMPARE(page->strokes().size(), 1);
+        QCOMPARE(page->zoom(), 1.0);
+        QCOMPARE(page->worldPos(), worldBefore);
+
+        // Back on the canvas the same keys do reach the page.
+        QTest::keyClick(&bar.window, Qt::Key_Escape);
+        QTest::qWait(150);
+        QTest::keyClick(&bar.window, Qt::Key_Z, Qt::ControlModifier);
+        QCOMPARE(page->strokes().size(), 0);
     }
 
     void toastFadesInFastOutSlow()

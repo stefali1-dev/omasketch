@@ -73,6 +73,8 @@ qt_add_qml_module(tst_app
     OUTPUT_DIRECTORY tst_app_qml
     QML_FILES
         src/Main.qml
+        src/PathBar.qml
+        src/Toast.qml
 )
 
 # Frame-time harness, run by hand on the real display; not a ctest.

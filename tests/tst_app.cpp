@@ -56,7 +56,7 @@ void AppTest::mainQmlWiresThePageAndDraws()
     // Tools first: the engine holds a raw pointer to it as a context property.
     Tools tools;
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty("Palette", paletteMap());
+    engine.rootContext()->setContextProperty("Colors", paletteMap());
     engine.rootContext()->setContextProperty("tools", &tools);
     engine.loadFromModule("Omasketch", "Main");
     QVERIFY(!engine.rootObjects().isEmpty());
