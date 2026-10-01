@@ -3,7 +3,7 @@
 #include <QColor>
 
 // The app's fixed colours (decisions.md, "Look"). QML reads them through the
-// "Palette" context property set in main.cpp.
+// "Colors" context property set in main.cpp.
 namespace palette {
 
 inline const QColor page(0xff, 0xff, 0xff);

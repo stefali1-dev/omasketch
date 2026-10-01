@@ -8,6 +8,21 @@ PathCompleter::PathCompleter(QObject *parent)
 {
 }
 
+QVariantMap PathCompleter::tab(const QString &text, bool openMode, int step)
+{
+    // Tab again on the previous result: cycle through the matches. A
+    // unique match has nothing to cycle, so re-list from it — that lists
+    // the folder the match ends in, like a shell's next Tab.
+    if (text == m_text && m_matches.size() > 1) {
+        const int n = m_matches.size();
+        m_index = m_index < 0 ? (step > 0 ? 0 : n - 1)
+                              : (m_index + step + n) % n;
+        m_text = shorten(m_base + m_matches.at(m_index));
+        return {{"text", m_text}, {"ghost", QString()}, {"count", n}};
+    }
+    return complete(text, openMode);
+}
+
 QVariantMap PathCompleter::complete(const QString &text, bool openMode)
 {
     m_matches.clear();
@@ -57,29 +72,10 @@ QVariantMap PathCompleter::complete(const QString &text, bool openMode)
         while (!match.startsWith(common))
             common.chop(1);
     }
-    return {{"text", shorten(m_base + common)},
+    m_text = shorten(m_base + common);
+    return {{"text", m_text},
             {"ghost", matches.first().mid(common.size())},
             {"count", matches.size()}};
-}
-
-QVariantMap PathCompleter::cycle(int step)
-{
-    const int n = m_matches.size();
-    if (n < 1)
-        return {{"text", QString()}, {"ghost", QString()}, {"count", 0}};
-    if (m_index < 0)
-        m_index = step > 0 ? 0 : n - 1;
-    else
-        m_index = (m_index + step + n) % n;
-    return {{"text", shorten(m_base + m_matches.at(m_index))},
-            {"ghost", QString()},
-            {"count", n}};
-}
-
-void PathCompleter::reset()
-{
-    m_matches.clear();
-    m_index = -1;
 }
 
 QString PathCompleter::expand(const QString &path) const

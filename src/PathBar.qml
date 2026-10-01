@@ -3,8 +3,9 @@ import QtQuick
 // The save/open path bar (decisions.md, "Path bar"): a slim pill at the
 // bottom centre with a grey mode label, the path, and grey ghost text for
 // the rest of the first Tab match. Keys work like a shell: Tab completes
-// and cycles, Ctrl+W kills the previous segment, Ctrl+U clears, Enter
-// confirms, Esc cancels. The Loader in Main.qml creates it on first use.
+// and cycles, Ctrl+W kills the previous segment, Ctrl+U kills to the line
+// start, Enter confirms, Esc cancels. The Loader in Main.qml creates it on
+// first use.
 Item {
     id: bar
     objectName: "pathBar"
@@ -12,7 +13,6 @@ Item {
     property string mode: "save"
     property bool shown: false         // open and taking input
     property bool noteShown: false     // the accent note right of the path
-    property bool cycling: false       // Tab pressed, matches are being cycled
     property bool saveArmed: false     // "exists" shown, next Enter overwrites
     property bool updatingText: false  // programmatic text changes don't disarm
     property string ghostTail: ""      // the rest of the first Tab match
@@ -44,7 +44,6 @@ Item {
 
     function show(newMode) {
         mode = newMode
-        cycling = false
         saveArmed = false
         ghostTail = ""
         noteShown = false
@@ -61,11 +60,9 @@ Item {
     }
 
     function completeMatch(step) {
-        const result = cycling ? completer.cycle(step)
-                               : completer.complete(input.text, mode === "open")
+        const result = completer.tab(input.text, mode === "open", step)
         if (result.count < 1)
             return
-        cycling = true
         setText(result.text)
         ghostTail = result.ghost
     }
@@ -78,6 +75,13 @@ Item {
     function confirm() {
         const absolute = completer.expand(input.text)
         if (mode === "save") {
+            // A directory (including "" and a trailing "/") would confirm
+            // ".png" or "dir/.png" — that is not a file name.
+            if (input.text.length === 0 || completer.isDir(absolute)) {
+                note.text = "no filename"
+                noteShown = true
+                return
+            }
             const path = absolute.toLowerCase().endsWith(".png") ? absolute : absolute + ".png"
             if (path !== absolute)
                 setText(completer.shorten(path))
@@ -143,14 +147,13 @@ Item {
         selectByMouse: true
 
         onTextChanged: if (!bar.updatingText) {
-            completer.reset()
-            bar.cycling = false
             bar.saveArmed = false
             bar.ghostTail = ""
             bar.noteShown = false
         }
 
         Keys.onPressed: (event) => {
+            const mod = event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)
             if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
                 bar.completeMatch(event.key === Qt.Key_Backtab ? -1 : 1)
                 event.accepted = true
@@ -160,11 +163,12 @@ Item {
             } else if (event.key === Qt.Key_Escape) {
                 bar.hide()
                 event.accepted = true
-            } else if (event.key === Qt.Key_W && (event.modifiers & Qt.ControlModifier)) {
+            } else if (event.key === Qt.Key_W && mod) {
                 bar.killPrev()
                 event.accepted = true
-            } else if (event.key === Qt.Key_U && (event.modifiers & Qt.ControlModifier)) {
-                bar.setText("")
+            } else if (event.key === Qt.Key_U && mod) {
+                // readline: kill from the cursor to the start of the line.
+                bar.setText(input.text.slice(input.cursorPosition), 0)
                 event.accepted = true
             }
         }

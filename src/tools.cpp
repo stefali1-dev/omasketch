@@ -87,11 +87,13 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
     switch (event->type()) {
     case QEvent::KeyPress: {
         auto *key = static_cast<QKeyEvent *>(event);
+        // While the path bar or a text box has focus, the keys belong to it:
+        // plain letters must not switch tools and the path-bar shortcuts
+        // must not re-prefill over what is being typed.
+        auto *focus = m_window ? m_window->activeFocusItem() : nullptr;
+        if (focus && focus->flags().testFlag(QQuickItem::ItemAcceptsInputMethod))
+            return QObject::eventFilter(watched, event);
         if (plain(key)) {
-            // While the path bar or a text box has focus, letters belong to it.
-            auto *focus = m_window ? m_window->activeFocusItem() : nullptr;
-            if (focus && focus->flags().testFlag(QQuickItem::ItemAcceptsInputMethod))
-                return QObject::eventFilter(watched, event);
             // Holding a plain key must not retrigger the tool or Space.
             if (key->isAutoRepeat())
                 break;

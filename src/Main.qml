@@ -31,7 +31,7 @@ Window {
         onTriggered: toolLabel.opacity = 0
     }
 
-    Toast { }
+    Toast { id: toast }
 
     Loader {
         id: pathBarLoader
@@ -41,6 +41,10 @@ Window {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 60
+        // The confirmed path shows as toast text until the later files
+        // task connects the signal in C++.
+        onLoaded: item.confirmed.connect(
+            (path, mode) => toast.show(mode + " → " + completer.shorten(path)))
     }
 
     Connections {

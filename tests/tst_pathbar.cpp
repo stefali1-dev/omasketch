@@ -11,6 +11,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include "palette.h"
 #include "pathcompleter.h"
 #include "tools.h"
 
@@ -33,12 +34,12 @@ void type(QQuickWindow *window, const QString &text)
 QVariantMap paletteMap()
 {
     return {
-        {"page",   QColor(0xff, 0xff, 0xff)},
-        {"ink",    QColor(0x00, 0x00, 0x00)},
-        {"red",    QColor(0xe0, 0x31, 0x31)},
-        {"blue",   QColor(0x19, 0x71, 0xc2)},
-        {"ui",     QColor(0x64, 0x66, 0x69)},
-        {"accent", QColor(0xb3, 0x91, 0x10)},
+        {"page",   palette::page},
+        {"ink",    palette::ink},
+        {"red",    palette::red},
+        {"blue",   palette::blue},
+        {"ui",     palette::ui},
+        {"accent", palette::accent},
     };
 }
 
@@ -92,6 +93,25 @@ struct Bar
     }
 };
 
+// The real Toast.qml in a window, same context properties.
+struct Toast
+{
+    QQmlEngine engine;
+    QQuickWindow window;
+    QQuickItem *item = nullptr;
+
+    Toast()
+    {
+        engine.rootContext()->setContextProperty("Colors", paletteMap());
+        QQmlComponent component(&engine,
+                                QUrl::fromLocalFile(QStringLiteral(SRC_DIR) + "/Toast.qml"));
+        item = qobject_cast<QQuickItem *>(component.create());
+        if (!item)
+            qFatal("Toast.qml failed to load: %s", qPrintable(component.errorString()));
+        item->setParentItem(window.contentItem());
+    }
+};
+
 } // namespace
 
 class PathBarTest : public QObject
@@ -110,20 +130,44 @@ private slots:
 
         PathCompleter completer;
         const QString base = dir.path() + '/';
-        const QVariantMap first = completer.complete(base + "de", false);
+        const QVariantMap first = completer.tab(base + "de", false, 1);
         QCOMPARE(first["count"].toInt(), 2);
         QCOMPARE(first["text"].toString(), base + "demo");
         QCOMPARE(first["ghost"].toString(), "1.png");
 
-        QVariantMap step = completer.cycle(1);
+        // A tab on the previous result cycles; Shift+Tab goes back.
+        QVariantMap step = completer.tab(first["text"].toString(), false, 1);
         QCOMPARE(step["text"].toString(), base + "demo1.png");
         QCOMPARE(step["ghost"].toString(), QString());
-        step = completer.cycle(1);
+        step = completer.tab(step["text"].toString(), false, 1);
         QCOMPARE(step["text"].toString(), base + "demo2.png");
-        step = completer.cycle(-1);
+        step = completer.tab(step["text"].toString(), false, -1);
         QCOMPARE(step["text"].toString(), base + "demo1.png");
-        step = completer.cycle(-1);
+        step = completer.tab(step["text"].toString(), false, -1);
         QCOMPARE(step["text"].toString(), base + "demo2.png");
+    }
+
+    void tabAfterUniqueCompletionListsInside()
+    {
+        // Regression (review): after a unique match the next tab() re-lists
+        // and offers what is inside the folder, like a shell.
+        QTemporaryDir dir;
+        QDir().mkpath(dir.path() + "/sub");
+        touch(dir.path() + "/sub/inner1.png");
+        touch(dir.path() + "/sub/inner2.png");
+
+        PathCompleter completer;
+        const QString base = dir.path() + '/';
+        const QVariantMap first = completer.tab(base + "su", false, 1);
+        QCOMPARE(first["count"].toInt(), 1);
+        QCOMPARE(first["text"].toString(), base + "sub/");
+
+        const QVariantMap second = completer.tab(first["text"].toString(), false, 1);
+        QCOMPARE(second["count"].toInt(), 2);
+        QCOMPARE(second["text"].toString(), base + "sub/inner");
+        QCOMPARE(second["ghost"].toString(), "1.png");
+        QCOMPARE(completer.tab(second["text"].toString(), false, 1)["text"].toString(),
+                 base + "sub/inner1.png");
     }
 
     void foldersCompleteWithTrailingSlash()
@@ -132,7 +176,7 @@ private slots:
         QDir().mkpath(dir.path() + "/sub");
 
         PathCompleter completer;
-        const QVariantMap result = completer.complete(dir.path() + "/su", false);
+        const QVariantMap result = completer.tab(dir.path() + "/su", false, 1);
         QCOMPARE(result["count"].toInt(), 1);
         QCOMPARE(result["text"].toString(), dir.path() + "/sub/");
     }
@@ -145,13 +189,15 @@ private slots:
         touch(dir.path() + "/notes.txt");
 
         PathCompleter completer;
-        const QVariantMap open = completer.complete(dir.path() + '/', true);
+        const QVariantMap open = completer.tab(dir.path() + '/', true, 1);
         QCOMPARE(open["count"].toInt(), 2);
-        QCOMPARE(completer.cycle(1)["text"].toString(), dir.path() + "/folder/");
-        QCOMPARE(completer.cycle(1)["text"].toString(), dir.path() + "/picture.png");
+        QCOMPARE(completer.tab(open["text"].toString(), true, 1)["text"].toString(),
+                 dir.path() + "/folder/");
+        QCOMPARE(completer.tab(dir.path() + "/folder/", true, 1)["text"].toString(),
+                 dir.path() + "/picture.png");
 
         // In save mode everything is offered.
-        QCOMPARE(completer.complete(dir.path() + '/', false)["count"].toInt(), 3);
+        QCOMPARE(completer.tab(dir.path() + '/', false, 1)["count"].toInt(), 3);
     }
 
     void tildeExpandsAndShortens()
@@ -163,7 +209,7 @@ private slots:
         QCOMPARE(completer.shorten(QDir::homePath()), "~");
 
         // "~" completes as the home folder, keeping the short display form.
-        const QVariantMap result = completer.complete("~", false);
+        const QVariantMap result = completer.tab("~", false, 1);
         QVERIFY(result["count"].toInt() >= 1);
         QVERIFY(result["text"].toString().startsWith("~/"));
     }
@@ -180,7 +226,7 @@ private slots:
         const QString realHome = QDir::homePath();
         qputenv("HOME", dir.path().toUtf8());
         PathCompleter completer;
-        const QVariantMap result = completer.complete("~/Drawings/zz", false);
+        const QVariantMap result = completer.tab("~/Drawings/zz", false, 1);
         qputenv("HOME", realHome.toUtf8());
 
         QCOMPARE(result["count"].toInt(), 2);
@@ -197,7 +243,7 @@ private slots:
         PathCompleter completer;
         QElapsedTimer timer;
         timer.start();
-        const QVariantMap result = completer.complete(dir.path() + "/f", false);
+        const QVariantMap result = completer.tab(dir.path() + "/f", false, 1);
         QVERIFY(timer.nsecsElapsed() < 8'000'000); // one frame at 120 Hz
         QCOMPARE(result["count"].toInt(), 3000);
     }
@@ -237,6 +283,27 @@ private slots:
         QCOMPARE(bar.text(), dir.path() + "/demo2.png");
     }
 
+    void tabAfterUniqueCompletionGoesThroughTheBar()
+    {
+        // Regression (review): after a unique match the next Tab must offer
+        // what is inside the folder, like a shell, not go dead.
+        QTemporaryDir dir;
+        QDir().mkpath(dir.path() + "/sub");
+        touch(dir.path() + "/sub/inner1.png");
+        touch(dir.path() + "/sub/inner2.png");
+
+        Bar bar("save");
+        QTest::keyClick(&bar.window, Qt::Key_U, Qt::ControlModifier);
+        type(&bar.window, dir.path() + "/su");
+        QTest::keyClick(&bar.window, Qt::Key_Tab);
+        QCOMPARE(bar.text(), dir.path() + "/sub/");
+        QTest::keyClick(&bar.window, Qt::Key_Tab);
+        QCOMPARE(bar.text(), dir.path() + "/sub/inner");
+        QCOMPARE(bar.ghost(), "1.png");
+        QTest::keyClick(&bar.window, Qt::Key_Tab);
+        QCOMPARE(bar.text(), dir.path() + "/sub/inner1.png");
+    }
+
     void ctrlWAndCtrlU()
     {
         Bar bar("save");
@@ -246,7 +313,7 @@ private slots:
 
         QTest::keyClick(&bar.window, Qt::Key_W, Qt::ControlModifier);
         QCOMPARE(bar.text(), "abc def/");
-        QTest::keyClick(&bar.window, Qt::Key_W, Qt::ControlModifier);
+        QTest::keyClick(&bar.window, Qt::Key_W, Qt::MetaModifier); // Super arrives as Meta too
         QCOMPARE(bar.text(), "abc ");
         QTest::keyClick(&bar.window, Qt::Key_W, Qt::ControlModifier);
         QCOMPARE(bar.text(), QString());
@@ -254,6 +321,17 @@ private slots:
         type(&bar.window, "kept");
         QTest::keyClick(&bar.window, Qt::Key_U, Qt::ControlModifier);
         QCOMPARE(bar.text(), QString());
+
+        // Ctrl+U kills from the cursor to the start of the line, like readline.
+        type(&bar.window, "keep tail");
+        QTest::keyClick(&bar.window, Qt::Key_Left);
+        QTest::keyClick(&bar.window, Qt::Key_Left);
+        QTest::keyClick(&bar.window, Qt::Key_Left);
+        QTest::keyClick(&bar.window, Qt::Key_Left);
+        QTest::keyClick(&bar.window, Qt::Key_U, Qt::MetaModifier);
+        QCOMPARE(bar.text(), "tail");
+        QTest::keyClick(&bar.window, Qt::Key_X);
+        QCOMPARE(bar.text(), "xtail"); // the cursor sits at the start
     }
 
     void overwriteNeedsSecondEnter()
@@ -313,6 +391,35 @@ private slots:
         QCOMPARE(bar.opacity(), 0.0);
     }
 
+    void enterNeedsAFileName()
+    {
+        // Review: "" would confirm ".png" and a trailing "/" would confirm
+        // "dir/.png" — Enter on either only notes, never confirms.
+        QTemporaryDir dir;
+        QDir().mkpath(dir.path() + "/sub");
+        Bar bar("save");
+        QSignalSpy spy(bar.item, SIGNAL(confirmed(QString,QString)));
+
+        QTest::keyClick(&bar.window, Qt::Key_U, Qt::ControlModifier);
+        QTest::keyClick(&bar.window, Qt::Key_Return); // empty line
+        QVERIFY(bar.noteVisible());
+        QCOMPARE(spy.count(), 0);
+
+        QTest::keyClick(&bar.window, Qt::Key_U, Qt::ControlModifier);
+        type(&bar.window, dir.path() + "/sub/");      // ends in "/"
+        QTest::keyClick(&bar.window, Qt::Key_Return);
+        QVERIFY(bar.noteVisible());
+        QCOMPARE(spy.count(), 0);
+        QCOMPARE(bar.item->property("shown").toBool(), true);
+
+        // Open mode notes on an empty line the same way.
+        QMetaObject::invokeMethod(bar.item, "show", Q_ARG(QVariant, QStringLiteral("open")));
+        QTest::keyClick(&bar.window, Qt::Key_U, Qt::ControlModifier);
+        QTest::keyClick(&bar.window, Qt::Key_Return);
+        QVERIFY(bar.noteVisible());
+        QCOMPARE(spy.count(), 0);
+    }
+
     void confirmExpandsTildeAndAddsPng()
     {
         Bar bar("save");
@@ -334,33 +441,67 @@ private slots:
         QCOMPARE(bar.tools.tool(), Tools::Select);
         QVERIFY(bar.text().endsWith("d"));
 
+        // Esc closes the bar without touching the tool. Checked from Draw
+        // so the assertion can bite (review: from Select it was vacuous,
+        // Select being the reset state).
         QTest::keyClick(&bar.window, Qt::Key_Escape);
         QTest::qWait(150);
         QCOMPARE(bar.opacity(), 0.0);
-        QCOMPARE(bar.tools.tool(), Tools::Select); // Esc cancelled the bar, not the tool
-
         QTest::keyClick(&bar.window, Qt::Key_D);
         QCOMPARE(bar.tools.tool(), Tools::Draw); // back on the canvas they fire again
+        QMetaObject::invokeMethod(bar.item, "show", Q_ARG(QVariant, QStringLiteral("open")));
         QTest::keyClick(&bar.window, Qt::Key_Escape);
-        QCOMPARE(bar.tools.tool(), Tools::Select);
+        QCOMPARE(bar.tools.tool(), Tools::Draw); // Esc in the bar left the tool alone
+        QTest::keyClick(&bar.window, Qt::Key_Escape);
+        QCOMPARE(bar.tools.tool(), Tools::Select); // on the canvas it resets
     }
 
-    void shortcutKeysReachTools()
+    void shortcutKeysWhileTheBarIsFocused()
     {
         Bar bar("open");
         QSignalSpy spy(&bar.tools, &Tools::pathBarRequested);
 
+        // While the bar has focus the shortcuts are ignored, so retyping
+        // Ctrl+Shift+S does not wipe the path being typed (review).
+        QTest::keyClick(&bar.window, Qt::Key_S, Qt::ControlModifier | Qt::ShiftModifier);
+        QTest::keyClick(&bar.window, Qt::Key_O, Qt::ControlModifier);
+        QTest::keyClick(&bar.window, Qt::Key_S, Qt::MetaModifier | Qt::ShiftModifier);
+        QCOMPARE(spy.count(), 0);
+
+        // Back on the canvas they open the bar again, Ctrl and Super alike.
+        QTest::keyClick(&bar.window, Qt::Key_Escape);
         QTest::keyClick(&bar.window, Qt::Key_S, Qt::ControlModifier | Qt::ShiftModifier);
         QCOMPARE(spy.count(), 1);
         QCOMPARE(spy.first().at(0).toString(), "save");
-
-        QTest::keyClick(&bar.window, Qt::Key_O, Qt::ControlModifier);
+        QTest::keyClick(&bar.window, Qt::Key_O, Qt::MetaModifier);
         QCOMPARE(spy.count(), 2);
         QCOMPARE(spy.at(1).at(0).toString(), "open");
+    }
 
-        // Super arrives as Meta instead of Ctrl just the same.
-        QTest::keyClick(&bar.window, Qt::Key_S, Qt::MetaModifier | Qt::ShiftModifier);
-        QCOMPARE(spy.count(), 3);
+    void toastFadesInFastOutSlow()
+    {
+        // Review: the fade durations were swapped because a binding read
+        // the animated opacity; they are now explicit, in 120 / out 150.
+        Toast toast;
+        QCOMPARE(toast.item->property("fadeInMs").toInt(), 120);
+        QCOMPARE(toast.item->property("fadeOutMs").toInt(), 150);
+
+        QMetaObject::invokeMethod(toast.item, "show",
+                                  Q_ARG(QVariant, QStringLiteral("save → ~/x.png")));
+        QCOMPARE(toast.item->property("text").toString(), "save → ~/x.png");
+        QCOMPARE(toast.item->property("fadeMs").toInt(), 120); // the in-duration is chosen
+        QTest::qWait(250);
+        QCOMPARE(toast.item->property("opacity").toDouble(), 1.0);
+
+        // Shorten the hold so the test sees the fade-out.
+        auto *hold = toast.item->findChild<QObject *>("hold");
+        QVERIFY(hold);
+        hold->setProperty("interval", 30);
+        QMetaObject::invokeMethod(hold, "restart");
+        QTest::qWait(100);
+        QCOMPARE(toast.item->property("fadeMs").toInt(), 150); // the out-duration is chosen
+        QTest::qWait(300);
+        QCOMPARE(toast.item->property("opacity").toDouble(), 0.0);
     }
 };
 
