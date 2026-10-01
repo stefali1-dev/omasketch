@@ -14,9 +14,12 @@ qt_add_executable(omasketch
     src/main.cpp
     src/page.cpp
     src/page.h
+    src/pageitem.h
     src/palette.h
     src/pathcompleter.cpp
     src/pathcompleter.h
+    src/selection.cpp
+    src/selection.h
     src/stroke.cpp
     src/stroke.h
     src/tools.cpp
@@ -39,7 +42,10 @@ target_include_directories(omasketch PRIVATE src)
 set(OMASKETCH_PAGE_SOURCES
     src/page.cpp
     src/page.h
+    src/pageitem.h
     src/palette.h
+    src/selection.cpp
+    src/selection.h
     src/stroke.cpp
     src/stroke.h
     src/tools.cpp

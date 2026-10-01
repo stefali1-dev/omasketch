@@ -6,6 +6,10 @@ class QEvent;
 class Page;
 class QQuickWindow;
 
+// Diameter of the eraser cursor in screen pixels; page.cpp erases everything
+// within half of it.
+constexpr qreal kEraserDiameter = 20.0;
+
 // The current tool and ink colour, moved by the plain keys from decisions.md.
 // Attached to the window it also keeps the cursor matching the tool, runs the
 // Ctrl/Super shortcuts (undo, zoom, fresh page), tracks the Space key for

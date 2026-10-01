@@ -9,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QQuickWindow>
+#include <QSet>
 #include <QSurfaceFormat>
 #include <QTimer>
 #include <QWheelEvent>
@@ -34,6 +35,11 @@ constexpr int kZoomFrames = 180;
 constexpr int kPrefillFrames = 10; // absorbs the one-off heavy build
 constexpr int kHeavyStrokes = 2000;
 constexpr int kHeavyPoints = 240;
+constexpr int kSampleStrokes = 200;   // selected for the move/resize phases
+constexpr int kSelectFrames = 6;      // selection and pan setup, not measured
+constexpr int kMoveFrames = 150;
+constexpr int kResizeSetupFrames = 4; // pan setup, not measured
+constexpr int kResizeFrames = 150;
 constexpr qreal kBudgetMs = 1000.0 / 120;
 constexpr qreal kMissedMs = 12; // a swapped frame is late once it misses a vsync
 
@@ -67,17 +73,28 @@ public:
                 prefillHeavy();
             }
         };
+        const auto select = [this](int i) { selectSetup(i); };
+        const auto move = [this](int i) { moveTick(i); };
+        const auto resizeSetup = [this](int i) {
+            if (i == 0)
+                panToPoint(m_page->selectionRect().bottomRight());
+        };
+        const auto resize = [this](int i) { resizeTick(i); };
 
         m_phases = {
-            {.name = "idle",       .frames = kIdleFrames,    .tick = idle},
-            {.name = "draw",       .frames = kDrawFrames,    .tick = draw},
-            {.name = "pan",        .frames = kPanFrames,     .tick = pan},
-            {.name = "zoom",       .frames = kZoomFrames,    .tick = zoom},
-            {.name = "prefill",    .frames = kPrefillFrames, .tick = prefill},
-            {.name = "idle-heavy", .frames = kIdleFrames,    .tick = idle},
-            {.name = "draw-heavy", .frames = kDrawFrames,    .tick = draw},
-            {.name = "pan-heavy",  .frames = kPanFrames,     .tick = pan},
-            {.name = "zoom-heavy", .frames = kZoomFrames,    .tick = zoom},
+            {.name = "idle",         .frames = kIdleFrames,         .tick = idle},
+            {.name = "draw",         .frames = kDrawFrames,         .tick = draw},
+            {.name = "pan",          .frames = kPanFrames,          .tick = pan},
+            {.name = "zoom",         .frames = kZoomFrames,         .tick = zoom},
+            {.name = "prefill",      .frames = kPrefillFrames,      .tick = prefill},
+            {.name = "idle-heavy",   .frames = kIdleFrames,         .tick = idle},
+            {.name = "draw-heavy",   .frames = kDrawFrames,         .tick = draw},
+            {.name = "pan-heavy",    .frames = kPanFrames,          .tick = pan},
+            {.name = "zoom-heavy",   .frames = kZoomFrames,         .tick = zoom},
+            {.name = "select",       .frames = kSelectFrames,       .tick = select},
+            {.name = "move-heavy",   .frames = kMoveFrames,         .tick = move},
+            {.name = "resize-prep",  .frames = kResizeSetupFrames,  .tick = resizeSetup},
+            {.name = "resize-heavy", .frames = kResizeFrames,       .tick = resize},
         };
     }
 
@@ -165,6 +182,70 @@ private:
         QCoreApplication::sendEvent(m_window, &event);
     }
 
+    // Pans the view so that the page point lands on the window centre; a
+    // pixelDelta wheel event pans 1:1 with no easing.
+    void panToPoint(const QPointF &pagePoint)
+    {
+        const QPointF centre(m_window->width() / 2, m_window->height() / 2);
+        QWheelEvent event(centre, centre, (centre - pagePoint).toPoint(), QPoint(),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(m_window, &event);
+    }
+
+    void selectSetup(int i)
+    {
+        if (i > 0)
+            return;
+        m_page->setTool(Tools::Select);
+        QList<PageItem *> selected;
+        selected.reserve(m_sample.size());
+        for (Stroke *stroke : m_sample)
+            selected.append(stroke);
+        m_page->setSelection(selected);
+        std::fprintf(stderr, "bench: selected %d of %d strokes\n",
+                     int(m_page->selection().size()), kHeavyStrokes);
+
+        // The move drag must press on the selection's ink, away from the
+        // selection's corner handles: pick a sample stroke the page
+        // hit-tests to, so the press really grabs a selected item.
+        QSet<PageItem *> sampleSet(selected.cbegin(), selected.cend());
+        for (const QPointF &mid : m_sampleMids) {
+            if (sampleSet.contains(m_page->itemAt(mid))) {
+                m_pressWorld = mid;
+                break;
+            }
+        }
+        panToPoint(m_page->worldPos() + m_pressWorld * m_page->zoom());
+    }
+
+    void moveTick(int i)
+    {
+        const QPoint centre(m_window->width() / 2, m_window->height() / 2);
+        if (i == 0) {
+            QTest::mouseMove(m_window, centre);
+            QTest::mousePress(m_window, Qt::LeftButton, {}, centre);
+            return;
+        }
+        const QPoint p = centre + QPoint(i * 4, i * 2); // stays inside the window
+        QTest::mouseMove(m_window, p);
+        if (i == kMoveFrames - 1)
+            QTest::mouseRelease(m_window, Qt::LeftButton, {}, p);
+    }
+
+    void resizeTick(int i)
+    {
+        const QPoint centre(m_window->width() / 2, m_window->height() / 2);
+        if (i == 0) {
+            QTest::mouseMove(m_window, centre);
+            QTest::mousePress(m_window, Qt::LeftButton, {}, centre); // the corner handle
+            return;
+        }
+        const QPoint p = centre + QPoint(i * 3, i * 3); // outward, stays inside
+        QTest::mouseMove(m_window, p);
+        if (i == kResizeFrames - 1)
+            QTest::mouseRelease(m_window, Qt::LeftButton, {}, p);
+    }
+
     void prefillHeavy()
     {
         QElapsedTimer build;
@@ -183,7 +264,11 @@ private:
                 p += QPointF(8.0, 6.0 * std::sin(j / 5.0 + i));
                 stroke->addPoint(p);
             }
-            m_page->addStroke(stroke);
+            m_page->addItem(stroke);
+            if (i < kSampleStrokes) {
+                m_sample.append(stroke);
+                m_sampleMids.append(p); // the last point: on the ink for sure
+            }
         }
         std::fprintf(stderr, "bench: prefilled %d strokes x %d points in %lld ms\n",
                      kHeavyStrokes, kHeavyPoints, build.elapsed());
@@ -192,6 +277,9 @@ private:
     QQuickWindow *m_window;
     Page *m_page;
     QList<Phase> m_phases;
+    QList<Stroke *> m_sample;
+    QList<QPointF> m_sampleMids; // world points on the sample strokes' ink
+    QPointF m_pressWorld;        // where the move drag grabs
     QElapsedTimer m_clock;
     qreal m_last = -1;
     int m_phase = 0;

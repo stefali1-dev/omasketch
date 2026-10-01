@@ -107,10 +107,20 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
             case Qt::Key_V:      setTool(Select); break;
             case Qt::Key_E:      setTool(Eraser); break;
             case Qt::Key_A:      setTool(Arrow); break;
-            case Qt::Key_Escape: setTool(Select); break;
             case Qt::Key_1:      setInk(Black); break;
             case Qt::Key_2:      setInk(Red); break;
             case Qt::Key_3:      setInk(Blue); break;
+            case Qt::Key_Delete:
+            case Qt::Key_Backspace:
+                if (m_page) m_page->deleteSelection();
+                break;
+            case Qt::Key_Escape:
+                // First Esc deselects; the next one returns to the select tool.
+                if (m_page && !m_page->selection().isEmpty())
+                    m_page->clearSelection();
+                else
+                    setTool(Select);
+                break;
             default:             break;
             }
         } else {
@@ -132,6 +142,13 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
                 }
                 break;
             case Qt::Key_N:     if (m_page) m_page->newPage();    break;
+            case Qt::Key_A:
+                // setTool first: switching tools clears the selection.
+                if (m_page) {
+                    setTool(Select);
+                    m_page->selectAll();
+                }
+                break;
             case Qt::Key_Equal:
             case Qt::Key_Plus:  if (m_page) m_page->zoomStep(1);  break;
             case Qt::Key_Minus: if (m_page) m_page->zoomStep(-1); break;
@@ -207,7 +224,7 @@ void Tools::applyCursor()
         m_window->setCursor(circleCursor(dpr, 10, palette::page, palette::ink));
         break;
     case Eraser:
-        m_window->setCursor(circleCursor(dpr, 20, palette::ui, QColor()));
+        m_window->setCursor(circleCursor(dpr, kEraserDiameter, palette::ui, QColor()));
         break;
     case Text:
         m_window->setCursor(Qt::IBeamCursor);

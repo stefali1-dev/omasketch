@@ -501,7 +501,7 @@ private slots:
         QTest::mousePress(&bar.window, Qt::LeftButton, {}, {100, 300});
         QTest::mouseMove(&bar.window, {300, 300});
         QTest::mouseRelease(&bar.window, Qt::LeftButton, {}, {300, 300});
-        QCOMPARE(page->strokes().size(), 1);
+        QCOMPARE(page->items().size(), 1);
 
         // The bar is back with focus: none of it may reach the page.
         QMetaObject::invokeMethod(bar.item, "show", Q_ARG(QVariant, QStringLiteral("save")));
@@ -514,7 +514,7 @@ private slots:
         QTest::keyClick(&bar.window, Qt::Key_Plus, Qt::ControlModifier);
         QTest::keyClick(&bar.window, Qt::Key_0, Qt::ControlModifier);
         QTest::qWait(400); // an unguarded zoom step animates in 120 ms
-        QCOMPARE(page->strokes().size(), 1);
+        QCOMPARE(page->items().size(), 1);
         QCOMPARE(page->zoom(), 1.0);
         QCOMPARE(page->worldPos(), worldBefore);
 
@@ -522,7 +522,7 @@ private slots:
         QTest::keyClick(&bar.window, Qt::Key_Escape);
         QTest::qWait(150);
         QTest::keyClick(&bar.window, Qt::Key_Z, Qt::ControlModifier);
-        QCOMPARE(page->strokes().size(), 0);
+        QCOMPARE(page->items().size(), 0);
     }
 
     void toastFadesInFastOutSlow()
