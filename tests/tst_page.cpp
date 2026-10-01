@@ -82,6 +82,8 @@ private slots:
     void freshPageIsUndoable();
     void wheelPansIncludingShiftAndHorizontal();
     void spacePansWithHandCursor();
+    void spacePanKillsTheZoomEase();
+    void quitMidStrokeFreesTheStroke();
     void wheelZoomStaysAnchoredAtTheCursor();
     void keyboardZoomStaysAnchoredAndClamps();
     void pinchZoomsSmoothly();
@@ -159,7 +161,10 @@ void PageTest::wheelPansIncludingShiftAndHorizontal()
     wheel(rig.window, QPointF(320, 240), QPoint(0, 120), Qt::ShiftModifier);
     QCOMPARE(rig.page->worldPos(), QPointF(120, 120));
 
-    // ...a horizontal swipe pans horizontally on its own.
+    // ...and a horizontal swipe pans on its own: scroll right moves the view
+    // right. (Scroll right arrives as negative x: QtWayland negates the
+    // Wayland "+x is right" value, KDE bug 417604, so adding the delta is the
+    // fix — verified against a real window, not the doc sign.)
     wheel(rig.window, QPointF(320, 240), QPoint(120, 0));
     QCOMPARE(rig.page->worldPos(), QPointF(240, 120));
 
@@ -193,6 +198,51 @@ void PageTest::spacePansWithHandCursor()
 
     QTest::keyRelease(&rig.window, Qt::Key_Space);
     QCOMPARE(rig.window.cursor().shape(), Qt::ArrowCursor);
+}
+
+void PageTest::spacePanKillsTheZoomEase()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+
+    rig.page->zoomStep(1); // starts the 120 ms ease
+    QTest::keyPress(&rig.window, Qt::Key_Space);
+    QTest::mousePress(&rig.window, Qt::LeftButton, {}, QPoint(300, 200));
+    const QPointF start = rig.page->worldPos();
+
+    QTest::mouseMove(&rig.window, QPoint(340, 260));
+    QTest::qWait(60);
+    QTest::mouseMove(&rig.window, QPoint(400, 300));
+    QTest::qWait(60); // an ease left running would fight the drag here
+
+    QCOMPARE(rig.page->worldPos(), start + QPointF(100, 100));
+
+    QTest::mouseRelease(&rig.window, Qt::LeftButton, {}, QPoint(400, 300));
+    QTest::keyRelease(&rig.window, Qt::Key_Space);
+}
+
+void PageTest::quitMidStrokeFreesTheStroke()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+
+    QTest::mousePress(&rig.window, Qt::LeftButton, {}, QPoint(150, 150));
+    QTest::mouseMove(&rig.window, QPoint(200, 160));
+    QCOMPARE(rig.page->strokes().size(), 0); // in progress, not on the stack
+
+    // The in-progress stroke has no QObject owner; find it under the world.
+    QQuickItem *world = rig.page->childItems().constFirst();
+    QCOMPARE(world->childItems().size(), 1);
+    bool freed = false;
+    QObject::connect(world->childItems().constFirst(), &QObject::destroyed, this,
+                     [&freed] { freed = true; });
+
+    delete rig.page; // quitting mid-stroke must not leak it
+    rig.page = nullptr;
+    QVERIFY(freed);
 }
 
 void PageTest::wheelZoomStaysAnchoredAtTheCursor()

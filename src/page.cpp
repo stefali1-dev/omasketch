@@ -87,6 +87,8 @@ Page::~Page()
 {
     // Commands own their strokes; drop the stack before the item tree goes.
     delete m_undo;
+    delete m_stroke; // a stroke in progress never reached the stack and a
+                     // visual parent does not own it
 }
 
 void Page::setTool(Tools::Tool tool)
@@ -194,6 +196,7 @@ void Page::mousePressEvent(QMouseEvent *event)
         return;
     if (m_spaceHeld) {
         m_panning = true;
+        killAnim(); // the drag owns the world position now, as with the wheel
         m_panGrab = event->position();
         m_panStart = m_world->position();
         emit panningChanged();
@@ -236,8 +239,7 @@ void Page::mouseReleaseEvent(QMouseEvent *event)
         return;
     }
     if (m_stroke) {
-        m_stroke->addPoint(toWorld(event->position()));
-        m_stroke->end();
+        m_stroke->addPoint(toWorld(event->position())); // the final build
         m_undo->push(new AddStroke(this, m_stroke)); // redo re-adds it: a no-op
         m_stroke = nullptr;
         event->accept();
@@ -259,6 +261,11 @@ void Page::wheelEvent(QWheelEvent *event)
     QPointF delta = event->pixelDelta();
     if (delta.isNull())
         delta = QPointF(event->angleDelta()); // one wheel notch (120) pans 120 px
+    // Adding the delta pans with the scroll. The horizontal sign looks wrong
+    // against Qt's docs (positive x = rotated right), but QtWayland delivers
+    // the Wayland "+x is right" value negated (KDE bug 417604): scroll right
+    // arrives negative, and adding it moves the view right, like every other
+    // app on this stack (verified on a real window).
     const QPointF pan = mods & Qt::ShiftModifier
         ? QPointF(delta.x() != 0 ? delta.x() : delta.y(), 0)
         : delta;

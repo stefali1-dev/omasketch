@@ -20,7 +20,6 @@ public:
 
     void begin(const QPointF &point);
     void addPoint(const QPointF &point);
-    void end() { m_finished = true; update(); }
 
     // Bounds in world coordinates, width included; used for Ctrl+0 centring.
     QRectF bounds() const;
@@ -39,7 +38,6 @@ private:
     QColor m_color = Qt::black;
     qreal m_width = 3;
     QList<QPointF> m_points;
-    bool m_finished = false;
     bool m_geometryDirty = false;
     int m_buildCount = 0;
 };

@@ -183,7 +183,6 @@ private:
                 p += QPointF(8.0, 6.0 * std::sin(j / 5.0 + i));
                 stroke->addPoint(p);
             }
-            stroke->end();
             m_page->addStroke(stroke);
         }
         std::fprintf(stderr, "bench: prefilled %d strokes x %d points in %lld ms\n",
