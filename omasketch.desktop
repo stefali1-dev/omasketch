@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=omasketch
+GenericName=Sketchpad
+Comment=Quick whiteboard for sketching
+Exec=omasketch
+Terminal=false
+Categories=Utility;Graphics;
