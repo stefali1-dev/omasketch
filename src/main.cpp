@@ -3,9 +3,11 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QSurfaceFormat>
 #include <cstdio>
 
 #include "palette.h"
+#include "page.h"
 #include "tools.h"
 
 namespace {
@@ -22,6 +24,12 @@ qint64 lastFrame = -1;
 
 int main(int argc, char *argv[])
 {
+    // Multisampling smooths the stroke edges; the frame-time bench measures
+    // what it costs.
+    QSurfaceFormat format;
+    format.setSamples(4);
+    QSurfaceFormat::setDefaultFormat(format);
+
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName("omasketch");
     QGuiApplication::setDesktopFileName("omasketch");
@@ -42,6 +50,10 @@ int main(int argc, char *argv[])
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     tools.attach(window);
+    if (auto *page = window->contentItem()->findChild<Page *>())
+        tools.setPage(page);
+    else
+        qWarning("omasketch: Main.qml has no Page");
 
     if (qEnvironmentVariableIsSet("OMASKETCH_TIMING")) {
         QObject::connect(window, &QQuickWindow::frameSwapped, window, [&] {

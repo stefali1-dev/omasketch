@@ -8,6 +8,10 @@ Window {
     color: Palette.page
     title: "omasketch"
 
+    Page {
+        anchors.fill: parent
+    }
+
     Text {
         id: toolLabel
         anchors.horizontalCenter: parent.horizontalCenter
