@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     tools.attach(window);
-    if (auto *page = window->contentItem()->findChild<Page *>())
+    if (auto *page = pageIn(window))
         tools.setPage(page);
     else
         qWarning("omasketch: Main.qml has no Page");

@@ -56,6 +56,21 @@ qt_add_executable(tst_page
 target_include_directories(tst_page PRIVATE src)
 target_link_libraries(tst_page PRIVATE Qt6::Quick Qt6::Gui Qt6::Test)
 
+# Loads the real Main.qml module, so it needs the same QML module as the app.
+qt_add_executable(tst_app
+    tests/tst_app.cpp
+    ${OMASKETCH_PAGE_SOURCES}
+)
+target_include_directories(tst_app PRIVATE src)
+target_link_libraries(tst_app PRIVATE Qt6::Quick Qt6::Gui Qt6::Test)
+qt_add_qml_module(tst_app
+    URI Omasketch
+    VERSION 1.0
+    OUTPUT_DIRECTORY tst_app_qml
+    QML_FILES
+        src/Main.qml
+)
+
 # Frame-time harness, run by hand on the real display; not a ctest.
 qt_add_executable(bench_frames
     tests/bench_frames.cpp
@@ -71,6 +86,10 @@ set_tests_properties(skeleton PROPERTIES
 )
 add_test(NAME page COMMAND tst_page)
 set_tests_properties(page PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=gl"
+)
+add_test(NAME app COMMAND tst_app)
+set_tests_properties(app PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=gl"
 )
 

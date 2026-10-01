@@ -64,6 +64,11 @@ void Tools::setPage(Page *page)
     page->setInk(m_ink);
 }
 
+Page *pageIn(QQuickWindow *window)
+{
+    return window->findChild<Page *>();
+}
+
 QString Tools::toolName() const
 {
     switch (m_tool) {

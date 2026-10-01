@@ -50,3 +50,8 @@ private:
     Ink m_ink = Black;
     bool m_spaceHeld = false;
 };
+
+// The Page QML declared inside Main.qml. Items in a Window are
+// QObject-parented to the window itself; only their visual parent is the
+// content item, so the search must start at the window.
+Page *pageIn(QQuickWindow *window);
