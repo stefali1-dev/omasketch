@@ -3,6 +3,7 @@
 #include <QKeyEvent>
 #include <QNativeGestureEvent>
 #include <QPainter>
+#include <QQuickItem>
 #include <QQuickWindow>
 #include <QtMath>
 
@@ -87,6 +88,10 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
     case QEvent::KeyPress: {
         auto *key = static_cast<QKeyEvent *>(event);
         if (plain(key)) {
+            // While the path bar or a text box has focus, letters belong to it.
+            auto *focus = m_window ? m_window->activeFocusItem() : nullptr;
+            if (focus && focus->flags().testFlag(QQuickItem::ItemAcceptsInputMethod))
+                return QObject::eventFilter(watched, event);
             // Holding a plain key must not retrigger the tool or Space.
             if (key->isAutoRepeat())
                 break;
@@ -109,6 +114,13 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
         } else {
             // Ctrl/Super shortcuts (decisions.md); repeats are wanted here.
             switch (key->key()) {
+            case Qt::Key_S:
+                if (key->modifiers() & Qt::ShiftModifier)
+                    emit pathBarRequested(QStringLiteral("save"));
+                break;
+            case Qt::Key_O:
+                emit pathBarRequested(QStringLiteral("open"));
+                break;
             case Qt::Key_Z:
                 if (m_page) {
                     if (key->modifiers() & Qt::ShiftModifier)

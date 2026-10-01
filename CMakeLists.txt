@@ -15,6 +15,8 @@ qt_add_executable(omasketch
     src/page.cpp
     src/page.h
     src/palette.h
+    src/pathcompleter.cpp
+    src/pathcompleter.h
     src/stroke.cpp
     src/stroke.h
     src/tools.cpp
@@ -26,6 +28,8 @@ qt_add_qml_module(omasketch
     VERSION 1.0
     QML_FILES
         src/Main.qml
+        src/PathBar.qml
+        src/Toast.qml
 )
 
 target_link_libraries(omasketch PRIVATE Qt6::Quick Qt6::Gui)
@@ -79,6 +83,17 @@ qt_add_executable(bench_frames
 target_include_directories(bench_frames PRIVATE src)
 target_link_libraries(bench_frames PRIVATE Qt6::Quick Qt6::Gui Qt6::Test)
 
+qt_add_executable(tst_pathbar
+    tests/tst_pathbar.cpp
+    ${OMASKETCH_PAGE_SOURCES}
+    src/pathcompleter.cpp
+    src/pathcompleter.h
+)
+target_include_directories(tst_pathbar PRIVATE src)
+target_compile_definitions(tst_pathbar PRIVATE
+    SRC_DIR="${CMAKE_CURRENT_LIST_DIR}/src")
+target_link_libraries(tst_pathbar PRIVATE Qt6::Quick Qt6::Test)
+
 enable_testing()
 add_test(NAME skeleton COMMAND tst_skeleton)
 set_tests_properties(skeleton PROPERTIES
@@ -91,6 +106,10 @@ set_tests_properties(page PROPERTIES
 add_test(NAME app COMMAND tst_app)
 set_tests_properties(app PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=gl"
+)
+add_test(NAME pathbar COMMAND tst_pathbar)
+set_tests_properties(pathbar PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
 )
 
 include(GNUInstallDirs)

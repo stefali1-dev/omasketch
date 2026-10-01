@@ -5,7 +5,7 @@ Window {
     visible: true
     width: 1280
     height: 800
-    color: Palette.page
+    color: Colors.page
     title: "omasketch"
 
     Page {
@@ -18,7 +18,7 @@ Window {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 32
         text: tools.toolName
-        color: Palette.ui
+        color: Colors.ui
         font.family: "JetBrainsMono Nerd Font"
         font.pixelSize: 16
         opacity: 0
@@ -31,11 +31,27 @@ Window {
         onTriggered: toolLabel.opacity = 0
     }
 
+    Toast { }
+
+    Loader {
+        id: pathBarLoader
+        objectName: "pathBarLoader"
+        active: false
+        sourceComponent: PathBar { }
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 60
+    }
+
     Connections {
         target: tools
         function onToolChanged() {
             toolLabel.opacity = 1
             hideToolLabel.restart()
+        }
+        function onPathBarRequested(mode) {
+            pathBarLoader.active = true
+            pathBarLoader.item.show(mode)
         }
     }
 }

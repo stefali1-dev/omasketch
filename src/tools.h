@@ -37,6 +37,8 @@ public:
 signals:
     void toolChanged();
     void inkChanged();
+    // Ctrl+Shift+S / Ctrl+O (Super arrives as either Ctrl or Meta).
+    void pathBarRequested(const QString &mode);
 
 private:
     void setTool(Tool tool);

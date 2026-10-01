@@ -2,13 +2,51 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickItem>
 #include <QQuickWindow>
 #include <QSurfaceFormat>
 #include <cstdio>
 
 #include "palette.h"
 #include "page.h"
+#include "pathcompleter.h"
 #include "tools.h"
+
+namespace {
+
+// Bridges the lazily created path bar to the toast. A small QObject because
+// QML-declared signals have no member pointer a lambda could connect with.
+class ToastBridge : public QObject
+{
+    Q_OBJECT
+public:
+    ToastBridge(QQuickItem *toast, QQuickItem *loader, const PathCompleter *completer, QObject *parent)
+        : QObject(parent), m_toast(toast), m_loader(loader), m_completer(completer)
+    {
+    }
+
+public slots:
+    void pathBarReady()
+    {
+        auto *pathBar = qvariant_cast<QQuickItem *>(m_loader->property("item"));
+        if (pathBar)
+            QObject::connect(pathBar, SIGNAL(confirmed(QString,QString)),
+                             this, SLOT(confirmed(QString,QString)));
+    }
+
+    void confirmed(const QString &path, const QString &mode)
+    {
+        QMetaObject::invokeMethod(m_toast, "show",
+            Q_ARG(QVariant, mode + " → " + m_completer->shorten(path)));
+    }
+
+private:
+    QQuickItem *m_toast;
+    QQuickItem *m_loader;
+    const PathCompleter *m_completer;
+};
+
+} // namespace
 
 namespace {
 
@@ -35,7 +73,9 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName("omasketch");
 
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty("Palette", QVariantMap{
+    // Named "Colors" rather than "Palette": QtQuick has its own Palette
+    // type, which would shadow a context property of that name.
+    engine.rootContext()->setContextProperty("Colors", QVariantMap{
         {"page",   palette::page},
         {"ink",    palette::ink},
         {"red",    palette::red},
@@ -43,6 +83,8 @@ int main(int argc, char *argv[])
         {"ui",     palette::ui},
         {"accent", palette::accent},
     });
+    PathCompleter completer;
+    engine.rootContext()->setContextProperty("completer", &completer);
     Tools tools;
     engine.rootContext()->setContextProperty("tools", &tools);
     engine.loadFromModule("Omasketch", "Main");
@@ -54,6 +96,15 @@ int main(int argc, char *argv[])
         tools.setPage(page);
     else
         qWarning("omasketch: Main.qml has no Page");
+
+    // The path bar is created lazily by its Loader; connect its result to
+    // the toast the first time it comes into being.
+    auto *toast = window->findChild<QQuickItem *>("toast");
+    auto *loader = window->findChild<QQuickItem *>("pathBarLoader");
+    if (toast && loader) {
+        auto *bridge = new ToastBridge(toast, loader, &completer, window);
+        QObject::connect(loader, SIGNAL(itemChanged()), bridge, SLOT(pathBarReady()));
+    }
 
     if (qEnvironmentVariableIsSet("OMASKETCH_TIMING")) {
         QObject::connect(window, &QQuickWindow::frameSwapped, window, [&] {
@@ -70,3 +121,5 @@ int main(int argc, char *argv[])
 
     return app.exec();
 }
+
+#include "main.moc"
