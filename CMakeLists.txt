@@ -157,6 +157,15 @@ set_tests_properties(pathbar PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
 )
 
+# End-to-end: a real session in a hidden sway (tests/e2e/run.sh). Skips
+# itself with exit 77 when the tools it drives are missing.
+add_test(NAME e2e COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/run.sh $<TARGET_FILE:omasketch>)
+set_tests_properties(e2e PROPERTIES
+    LABELS e2e
+    SKIP_RETURN_CODE 77
+    TIMEOUT 300
+)
+
 include(GNUInstallDirs)
 install(TARGETS omasketch RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES omasketch.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)

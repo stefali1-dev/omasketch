@@ -35,8 +35,13 @@ int main(int argc, char *argv[])
     // graph's GL context creation otherwise sits in the QML load). An explicit
     // setGraphicsApi would override QSG_RHI_BACKEND, so only ask for Vulkan
     // when the environment does not choose; Qt falls back to GL without it.
+    // Only when vulkan.h is available though: the export path (files.cpp)
+    // needs a QVulkanInstance, which cannot compile without it, and a Vulkan
+    // window with a broken export saves nothing.
+#if __has_include(<vulkan/vulkan.h>)
     if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND"))
         QQuickWindow::setGraphicsApi(QSGRendererInterface::GraphicsApi::VulkanRhi);
+#endif
 
     // The look is fixed (palette.h, decisions.md) and there are no dialogs:
     // the host GTK theme plugin would only slow startup down (dlopen + GTK
