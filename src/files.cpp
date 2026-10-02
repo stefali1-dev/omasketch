@@ -11,10 +11,6 @@
 #include <QQuickRenderControl>
 #include <QQuickRenderTarget>
 #include <QQuickWindow>
-#include <QSGRendererInterface>
-#if __has_include(<vulkan/vulkan.h>)
-#include <QVulkanInstance>
-#endif
 #include <QtMath>
 #include <rhi/qrhi.h>
 
@@ -27,18 +23,6 @@ QImage renderWorldToImage(QQuickItem *world, const QRectF &worldRect, qreal scal
     QQuickRenderControl control;
     QQuickWindow window(&control);
     window.setColor(palette::page);
-    // A render-control window on Vulkan must be handed its QVulkanInstance
-    // explicitly: without it initialize() fails and every export comes up
-    // empty. Without vulkan.h at build time the app stayed on GL (main.cpp)
-    // and no instance is needed.
-#if __has_include(<vulkan/vulkan.h>)
-    static QVulkanInstance vulkan;
-    if (QQuickWindow::graphicsApi() == QSGRendererInterface::GraphicsApi::VulkanRhi) {
-        if (!vulkan.isValid() && !vulkan.create())
-            return {};
-        window.setVulkanInstance(&vulkan);
-    }
-#endif
     if (!control.initialize())
         return {};
     QRhi *rhi = control.rhi();

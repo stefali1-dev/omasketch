@@ -5,7 +5,6 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
-#include <QSGRendererInterface>
 #include <QSurfaceFormat>
 #include <QTimer>
 #include <QVariant>
@@ -31,17 +30,9 @@ qint64 lastFrame = -1;
 
 int main(int argc, char *argv[])
 {
-    // Vulkan gets the first frame up faster than the GL default (the scene
-    // graph's GL context creation otherwise sits in the QML load). An explicit
-    // setGraphicsApi would override QSG_RHI_BACKEND, so only ask for Vulkan
-    // when the environment does not choose; Qt falls back to GL without it.
-    // Only when vulkan.h is available though: the export path (files.cpp)
-    // needs a QVulkanInstance, which cannot compile without it, and a Vulkan
-    // window with a broken export saves nothing.
-#if __has_include(<vulkan/vulkan.h>)
-    if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND"))
-        QQuickWindow::setGraphicsApi(QSGRendererInterface::GraphicsApi::VulkanRhi);
-#endif
+    // Graphics stay on Qt's default (OpenGL). Vulkan was tried for a faster
+    // first frame, saved little, and silently broke saving: the export's
+    // render-control window (files.cpp) would need a QVulkanInstance.
 
     // The look is fixed (palette.h, decisions.md) and there are no dialogs:
     // the host GTK theme plugin would only slow startup down (dlopen + GTK
