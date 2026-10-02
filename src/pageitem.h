@@ -1,6 +1,9 @@
 #pragma once
 
+#include <QMatrix4x4>
 #include <QQuickItem>
+#include <QSGTransformNode>
+#include <QVector3D>
 
 // Base for everything on the page (a stroke today; text, arrows and images
 // later). Geometry lives in item coordinates; the item's position places it
@@ -55,6 +58,18 @@ public:
 
 protected:
     virtual QRectF localBounds() const = 0;
+
+    // The paint node's root transform carries the live drag scale (identity
+    // outside a drag), so nothing rebuilds per frame; the geometry or text
+    // node below it stays unscaled. Every kind calls this in its
+    // updatePaintNode, before any early return.
+    void applyVisualScale(QSGTransformNode *root) const
+    {
+        const QPointF s = m_visualScale;
+        QMatrix4x4 matrix;
+        matrix.scale(QVector3D(float(s.x()), float(s.y()), 1));
+        root->setMatrix(matrix);
+    }
 
     // localBounds() with the live drag scale applied (flips normalized).
     QRectF scaledBounds() const

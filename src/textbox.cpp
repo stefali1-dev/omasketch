@@ -7,6 +7,7 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickWindow>
+#include <QSGTransformNode>
 #include <QtQuick/qsgtextnode.h>
 #include <QVariant>
 #include <cmath>
@@ -250,18 +251,24 @@ QRectF TextBox::boundingRect() const
 QSGNode *TextBox::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
     // While the editor child draws the text this item draws nothing; the
-    // node comes back when the edit ends.
+    // node comes back when the edit ends. A resize never coexists with an
+    // edit (any press commits first), so the root's visual-scale transform
+    // only ever scales an idle box, like the other kinds'.
     if (m_editing || m_document->isEmpty()) {
         delete oldNode;
         return nullptr;
     }
-    auto *node = static_cast<QSGTextNode *>(oldNode);
-    if (!node) {
-        node = window()->createTextNode();
+    auto *root = static_cast<QSGTransformNode *>(oldNode);
+    if (!root) {
+        root = new QSGTransformNode;
+        auto *node = window()->createTextNode();
         node->setRenderType(QSGTextNode::QtRendering);
+        root->appendChildNode(node);
     }
+    auto *node = static_cast<QSGTextNode *>(root->childAtIndex(0));
     node->clear();
     node->setColor(m_color);
     node->addTextDocument(QPointF(0, 0), m_document.get());
-    return node;
+    applyVisualScale(root);
+    return root;
 }

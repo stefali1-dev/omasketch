@@ -1,10 +1,8 @@
 #include "imageitem.h"
 
-#include <QMatrix4x4>
 #include <QQuickWindow>
 #include <QSGSimpleTextureNode>
 #include <QSGTransformNode>
-#include <QVector3D>
 
 ImageItem::ImageItem(QQuickItem *parent)
     : PageItem(parent)
@@ -52,13 +50,6 @@ QSGNode *ImageItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
     auto *node = static_cast<QSGSimpleTextureNode *>(root->childAtIndex(0));
     node->setRect(QRectF(0, 0, width(), height()));
-    if (visualScale() == QPointF(1, 1)) {
-        root->setMatrix(QMatrix4x4());
-    } else {
-        const QPointF s = visualScale();
-        QMatrix4x4 matrix;
-        matrix.scale(QVector3D(float(s.x()), float(s.y()), 1));
-        root->setMatrix(matrix);
-    }
+    applyVisualScale(root);
     return root;
 }

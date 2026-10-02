@@ -1,10 +1,8 @@
 #include "arrow.h"
 
-#include <QMatrix4x4>
 #include <QSGFlatColorMaterial>
 #include <QSGGeometryNode>
 #include <QSGTransformNode>
-#include <QVector3D>
 #include <QtMath>
 #include <cmath>
 
@@ -178,14 +176,7 @@ QSGNode *Arrow::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         node->markDirty(QSGNode::DirtyMaterial);
         m_colorDirty = false;
     }
-    if (visualScale() == QPointF(1, 1)) {
-        root->setMatrix(QMatrix4x4());
-    } else {
-        const QPointF s = visualScale();
-        QMatrix4x4 matrix;
-        matrix.scale(QVector3D(float(s.x()), float(s.y()), 1));
-        root->setMatrix(matrix);
-    }
+    applyVisualScale(root);
     if (!rebuild)
         return root;
 

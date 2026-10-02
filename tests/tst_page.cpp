@@ -125,6 +125,22 @@ int inkRows(QQuickWindow &window, int x)
     return rows;
 }
 
+// How many ink-coloured pixels the rect holds (text glyphs at a live drag
+// scale keep pure-ink cores; the grey and accent overlays never match).
+int inkIn(QQuickWindow &window, const QRectF &rect)
+{
+    const QImage image = window.grabWindow();
+    const qreal dpr = image.devicePixelRatio();
+    int n = 0;
+    for (int y = qRound(rect.top() * dpr); y < qRound(rect.bottom() * dpr); ++y) {
+        for (int x = qRound(rect.left() * dpr); x < qRound(rect.right() * dpr); ++x) {
+            if (image.pixelColor(x, y) == palette::ink)
+                ++n;
+        }
+    }
+    return n;
+}
+
 // Whether anything non-page is drawn in the rect: text glyphs or a caret,
 // either of which survives antialiasing with at least one off-page pixel.
 bool anythingDrawn(QQuickWindow &window, const QRectF &rect)
@@ -187,6 +203,7 @@ private slots:
     void shiftResizeIsFree();
     void shiftResizePastTheAnchorNeverFlips();
     void shiftResizePastTheAnchorKeepsImagesPositive();
+    void textBoxFollowsTheLiveResize();
     void resizeHandleShowsTheDiagonalCursor();
     void resizeKeepsTheLineWidth();
     void deleteRemovesAndUndoes();
@@ -801,6 +818,30 @@ void PageTest::shiftResizePastTheAnchorKeepsImagesPositive()
     QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
     QCOMPARE(image->size(), QSizeF(64, 48));
     QCOMPARE(image->position(), QPointF(200, 200));
+}
+
+// Strokes, arrows and images scale live through the shared visual-scale
+// transform while a resize drag runs; the text box's idle node used to stay
+// at its old size until release.
+void PageTest::textBoxFollowsTheLiveResize()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    TextBox *box = placeBox(rig, QPointF(200, 200), QStringLiteral("abcd"));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(210, 210));
+    const QRectF rect = rig.page->selectionRect();
+
+    // A band right of the idle text: mid-drag only the grown glyphs are
+    // there (the overlay draws in grey and accent, never ink).
+    const QRectF band(rect.right() + 5, rect.top(), 45, rect.height());
+    mouse(rig.window, QEvent::MouseButtonPress, rect.bottomRight());
+    mouse(rig.window, QEvent::MouseMove, rect.bottomRight() + QPointF(60, 60));
+    QVERIFY2(inkIn(rig.window, band) > 10, "text did not follow the drag");
+    mouse(rig.window, QEvent::MouseButtonRelease,
+          rect.bottomRight() + QPointF(60, 60));
+    QVERIFY(box->fontSize() > 22); // the drag still bakes on release
 }
 
 void PageTest::resizeHandleShowsTheDiagonalCursor()
