@@ -58,6 +58,10 @@ public:
     // The box being edited, or null. Not committed, so not in items() yet.
     TextBox *editing() const { return m_editing; }
 
+    // Throws away one text editor right after startup, so its QML is
+    // parsed outside any real edit (see main.cpp for when).
+    void warmTextEditor();
+
     // Introspection for the tests and the frame-time bench.
     qreal zoom() const { return m_zoom; }
     QPointF worldPos() const { return m_world->position(); }

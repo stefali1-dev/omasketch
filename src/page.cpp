@@ -900,6 +900,19 @@ void Page::commitEditing()
     m_editingNew = false;
 }
 
+void Page::warmTextEditor()
+{
+    // The editor's QML is parsed and instantiated on first creation, a
+    // ~60 ms hit that would otherwise land in the first keystroke frame
+    // of a real edit. A throwaway box takes the hit invisibly: created
+    // and freed between two frames, so nothing renders, nothing gets
+    // focus for long, and nothing reaches the undo stack.
+    TextBox *box = new TextBox(this);
+    box->startEdit(QPointF(0, 0));
+    box->stopEdit();
+    delete box;
+}
+
 void Page::finishDrawing(const QPointF &world, bool snap)
 {
     if (auto *arrow = qobject_cast<Arrow *>(m_drawing)) {

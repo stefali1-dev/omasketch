@@ -216,6 +216,7 @@ private slots:
     void typingIsFastWith200Boxes();
     void textBoxTypesInJetBrainsMono();
     void saveAndFreshPageCommitTheEdit();
+    void warmTextEditorLeavesNoTrace();
     void quitWhileEditingAnExistingBoxFreesItOnce();
     void quitWhileEditingANewBoxFreesIt();
     void emptyingAnExistingBoxRemovesItUndoable();
@@ -1461,6 +1462,22 @@ void PageTest::saveAndFreshPageCommitTheEdit()
     QCOMPARE(rig.page->items().size(), 1);
     QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
              QStringLiteral("abc"));
+}
+
+void PageTest::warmTextEditorLeavesNoTrace()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+    const bool cleanBefore = rig.page->isClean(); // the box's own AddItem
+
+    rig.page->warmTextEditor();
+    QCOMPARE(rig.page->items().size(), 1); // only the placed box
+    QVERIFY(rig.page->editing() == nullptr);
+    QCOMPARE(rig.page->isClean(), cleanBefore); // no undo step added
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("ab"));
 }
 
 void PageTest::quitWhileEditingAnExistingBoxFreesItOnce()

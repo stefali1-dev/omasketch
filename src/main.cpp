@@ -7,6 +7,7 @@
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QSurfaceFormat>
+#include <QTimer>
 #include <QVariant>
 #include <cstdio>
 
@@ -82,6 +83,13 @@ int main(int argc, char *argv[])
     if (page) {
         tools.setPage(page);
         files.setPage(page);
+        // Once the first frame is up (the next event-loop turn, so the
+        // frame itself is not delayed), throw away a text editor: its QML
+        // then sits parsed in the engine and the first real edit doesn't
+        // pay the parse inside a keystroke frame.
+        QObject::connect(window, &QQuickWindow::frameSwapped, window,
+                         [page] { QTimer::singleShot(0, page, [page] { page->warmTextEditor(); }); },
+                         Qt::SingleShotConnection);
     } else {
         qWarning("omasketch: Main.qml has no Page");
     }

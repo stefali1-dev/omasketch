@@ -365,6 +365,9 @@ int main(int argc, char *argv[])
     window.show();
 
     Bench bench(&window, page);
+    // The app throws away a text editor right after its first frame; do
+    // the same here, so the type phase measures a warmed first key.
+    QTimer::singleShot(0, page, [page] { page->warmTextEditor(); });
     QTimer::singleShot(500, &bench, &Bench::start);
     return app.exec();
 }
