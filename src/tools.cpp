@@ -60,7 +60,6 @@ void Tools::setPage(Page *page)
 {
     m_page = page;
     connect(this, &Tools::toolChanged, page, [this, page] { page->setTool(m_tool); });
-    connect(this, &Tools::inkChanged, page, [this, page] { page->setInk(m_ink); });
     connect(page, &Page::panningChanged, this, &Tools::applyCursor);
     page->setTool(m_tool);
     page->setInk(m_ink);
@@ -229,14 +228,11 @@ void Tools::setTool(Tool tool)
 
 void Tools::setInk(Ink ink)
 {
-    if (m_ink != ink) {
-        m_ink = ink;
-        emit inkChanged();
-    } else if (m_page) {
-        // The ink already matches, but a differently coloured selection
-        // must still recolour (1/2/3 on a selection drawn in another colour).
+    // 1/2/3 also recolour the selection; the page mints an undo step only
+    // when a selected item actually changes.
+    m_ink = ink;
+    if (m_page)
         m_page->setInk(m_ink);
-    }
 }
 
 void Tools::applyCursor()

@@ -18,7 +18,6 @@ class Tools : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(Tool tool READ tool NOTIFY toolChanged)
-    Q_PROPERTY(Ink ink READ ink NOTIFY inkChanged)
     Q_PROPERTY(QString toolName READ toolName NOTIFY toolChanged)
 
 public:
@@ -33,14 +32,12 @@ public:
     void setPage(Page *page);
 
     Tool tool() const { return m_tool; }
-    Ink ink() const { return m_ink; }
     QString toolName() const;
 
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 signals:
     void toolChanged();
-    void inkChanged();
     // Ctrl+Shift+S / Ctrl+O (Super arrives as either Ctrl or Meta).
     void pathBarRequested(const QString &mode);
     // Ctrl+S / Ctrl+C / Ctrl+V (main.cpp wires these to Files).

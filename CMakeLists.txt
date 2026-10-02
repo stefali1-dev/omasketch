@@ -15,44 +15,8 @@ qt_standard_project_setup()
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
 
-qt_add_executable(omasketch
-    src/arrow.cpp
-    src/arrow.h
-    src/files.cpp
-    src/files.h
-    src/geometry.h
-    src/imageitem.cpp
-    src/imageitem.h
-    src/main.cpp
-    src/page.cpp
-    src/page.h
-    src/pageitem.h
-    src/palette.h
-    src/pathcompleter.cpp
-    src/pathcompleter.h
-    src/selection.cpp
-    src/selection.h
-    src/stroke.cpp
-    src/stroke.h
-    src/textbox.cpp
-    src/textbox.h
-    src/tools.cpp
-    src/tools.h
-)
-
-qt_add_qml_module(omasketch
-    URI Omasketch
-    VERSION 1.0
-    QML_FILES
-        src/Main.qml
-        src/PathBar.qml
-        src/Toast.qml
-)
-
-target_link_libraries(omasketch PRIVATE Qt6::Quick Qt6::Gui Qt6::GuiPrivate)
-target_include_directories(omasketch PRIVATE src)
-
-# The tests need a page too; the QML module itself only matters for the app.
+# Everything the page is drawn with: shared by the app and every test that
+# builds a Page without the QML module.
 set(OMASKETCH_PAGE_SOURCES
     src/arrow.cpp
     src/arrow.h
@@ -72,6 +36,27 @@ set(OMASKETCH_PAGE_SOURCES
     src/tools.cpp
     src/tools.h
 )
+
+qt_add_executable(omasketch
+    ${OMASKETCH_PAGE_SOURCES}
+    src/main.cpp
+    src/files.cpp
+    src/files.h
+    src/pathcompleter.cpp
+    src/pathcompleter.h
+)
+
+qt_add_qml_module(omasketch
+    URI Omasketch
+    VERSION 1.0
+    QML_FILES
+        src/Main.qml
+        src/PathBar.qml
+        src/Toast.qml
+)
+
+target_link_libraries(omasketch PRIVATE Qt6::Quick Qt6::Gui Qt6::GuiPrivate)
+target_include_directories(omasketch PRIVATE src)
 
 qt_add_executable(tst_skeleton
     tests/tst_skeleton.cpp
@@ -136,23 +121,12 @@ target_compile_definitions(tst_pathbar PRIVATE
 target_link_libraries(tst_pathbar PRIVATE Qt6::Quick Qt6::Test)
 
 enable_testing()
-add_test(NAME skeleton COMMAND tst_skeleton)
-set_tests_properties(skeleton PROPERTIES
+foreach(test skeleton page app files pathbar)
+    add_test(NAME ${test} COMMAND tst_${test})
+endforeach()
+set_tests_properties(skeleton page app files PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=gl"
 )
-add_test(NAME page COMMAND tst_page)
-set_tests_properties(page PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=gl"
-)
-add_test(NAME app COMMAND tst_app)
-set_tests_properties(app PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=gl"
-)
-add_test(NAME files COMMAND tst_files)
-set_tests_properties(files PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=gl"
-)
-add_test(NAME pathbar COMMAND tst_pathbar)
 set_tests_properties(pathbar PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
 )

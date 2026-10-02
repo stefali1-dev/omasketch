@@ -285,8 +285,8 @@ Page::~Page()
 
 void Page::setTool(Tools::Tool tool)
 {
-    if (m_editing)
-        commitEditing(); // keys went to the box; this path cannot run mid-edit
+    // Never runs mid-edit: the keys go to the box (see Tools' event filter),
+    // and the shortcuts that commit first do that themselves.
     cancelDrag();
     if (tool != Tools::Select)
         clearSelection();
@@ -316,8 +316,6 @@ void Page::setInk(Tools::Ink ink)
     }
     if (!changed.isEmpty())
         m_undo->push(new RecolorItems(changed, from, color));
-    if (m_ink == color)
-        return;
     m_ink = color;
 }
 
