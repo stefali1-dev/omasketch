@@ -257,7 +257,6 @@ void AppTest::saveFlowThroughMainQml()
     Page *page = pageIn(window);
     QVERIFY(page);
     tools.setPage(page);
-<<<<<<< HEAD
     files.setPage(page);
     QObject::connect(&tools, &Tools::saveRequested, &files, &Files::save);
 

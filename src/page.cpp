@@ -893,7 +893,8 @@ void Page::finishDrawing(const QPointF &world, bool snap)
 {
     if (auto *arrow = qobject_cast<Arrow *>(m_drawing)) {
         arrow->setEnd(snap ? arrow->snapped(world) : world);
-        if (QLineF(m_pressWorld, world).length() < kMinDrag) {
+        // kMinDrag counts screen pixels: the drag as the screen sees it.
+        if (QLineF(m_pressWorld, world).length() * m_zoom < kMinDrag) {
             delete m_drawing; // a click is nothing, like an empty text box
             m_drawing = nullptr;
             return;

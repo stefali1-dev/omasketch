@@ -14,13 +14,13 @@
 // the arrow is plain opaque geometry: the shaft is a quad from the start to
 // the head's base, the head a triangle on that base. They are triangles in
 // one geometry sharing the base edge, all one colour, so there is no seam
-// between line and head. The head is sized in world units — 4 stroke widths
-// long, 3 wide — and scales with zoom exactly like the shaft does.
+// between line and head. The head is sized in world units — 5.5 stroke
+// widths long, 4 wide — and scales with zoom exactly like the shaft does.
 
 namespace {
 
-constexpr qreal kHeadLengths = 4.0;    // head length, in stroke widths
-constexpr qreal kHeadHalfWidths = 1.5; // half the head base, in stroke widths
+constexpr qreal kHeadLengths = 5.5;  // head length, in stroke widths
+constexpr qreal kHeadHalfWidths = 2; // half the head base, in stroke widths
 
 } // namespace
 
@@ -191,14 +191,16 @@ QSGNode *Arrow::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
     m_geometryDirty = false;
 
+    // The head from the one derivation hit-testing also uses; only the
+    // shaft's own half-width offset is computed here.
+    const QPolygonF tri = head();
+    const QPointF base = (tri[0] + tri[1]) / 2;
+    const QPointF headOut = (tri[0] - tri[1]) / 2;
     const QPointF line = m_end - m_start;
     const qreal length = std::hypot(line.x(), line.y());
-    const QPointF dir = length > 0 ? line / length : QPointF(1, 0);
-    const QPointF across = QPointF(-dir.y(), dir.x());
+    const QPointF across = length > 0
+        ? QPointF(-line.y(), line.x()) / length : QPointF(0, 1);
     const QPointF shaftOut = across * (m_width / 2);
-    const qreal headLength = qMin(kHeadLengths * m_width, length);
-    const QPointF base = m_end - dir * headLength;
-    const QPointF headOut = across * (kHeadHalfWidths * m_width);
 
     QSGGeometry *geometry = node->geometry();
     geometry->allocate(9);

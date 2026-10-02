@@ -223,6 +223,8 @@ private slots:
     void arrowShiftSnapsTo45Degrees();
     void arrowClickWithoutDragMakesNothing();
     void arrowHitTestsNearTheInkNotTheBox();
+    void arrowMarqueeSelectsThroughTheHeadAlone();
+    void arrowMinDragIsScreenPixels();
     void arrowMovesResizesDeletesLikeAStroke();
 };
 
@@ -1617,11 +1619,11 @@ void PageTest::arrowHitTestsNearTheInkNotTheBox()
     drag(rig.window, QPointF(200, 200), QPointF(400, 200));
     auto *horizontal = static_cast<Arrow *>(rig.page->items().constFirst());
 
-    // With a 2 px tolerance the shaft alone cannot reach the head's slant,
-    // yet the head is ink; just past its edge or before its base, nothing.
-    QVERIFY(horizontal->hitTest(QPointF(393.5, 202.2), 2));
-    QVERIFY(!horizontal->hitTest(QPointF(393.5, 202.6), 2));
-    QVERIFY(!horizontal->hitTest(QPointF(385, 203), 2));
+    // With a 2 px tolerance the shaft alone cannot reach the head, yet the
+    // head is ink; just past its slant or before its base, nothing.
+    QVERIFY(horizontal->hitTest(QPointF(386, 204.5), 2));
+    QVERIFY(!horizontal->hitTest(QPointF(386, 205.6), 2));
+    QVERIFY(!horizontal->hitTest(QPointF(378, 203), 2));
 
     drag(rig.window, QPointF(100, 100), QPointF(300, 300)); // a diagonal one
     QTest::keyClick(&rig.window, Qt::Key_V);
@@ -1632,6 +1634,52 @@ void PageTest::arrowHitTestsNearTheInkNotTheBox()
     click(rig.window, QPointF(150, 148)); // 1.4 px off the diagonal: a hit
     QCOMPARE(rig.page->selection().size(), 1);
     QCOMPARE(rig.page->selection().constFirst(), rig.page->items().constLast());
+}
+
+void PageTest::arrowMarqueeSelectsThroughTheHeadAlone()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_A);
+    drag(rig.window, QPointF(200, 200), QPointF(400, 200));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+
+    // The press is off the ink (well past the 6 px click tolerance), so the
+    // drag is a marquee; its box reaches the head's lower corner only.
+    drag(rig.window, QPointF(383, 212), QPointF(386.5, 204.8));
+    QCOMPARE(rig.page->selection().size(), 1);
+
+    click(rig.window, QPointF(500, 400)); // clear, then a box off all ink
+    drag(rig.window, QPointF(370, 210), QPointF(381, 214));
+    QCOMPARE(rig.page->selection().size(), 0);
+}
+
+void PageTest::arrowMinDragIsScreenPixels()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_A);
+    Page *page = rig.page;
+    const auto onScreen = [page](QPointF world) {
+        return world * page->zoom() + page->worldPos();
+    };
+
+    // Zoomed in, a drag can be under 4 world px yet over 4 screen px: drawn.
+    pinch(rig.window, QPointF(320, 240), 1.0); // zoom 2
+    QCOMPARE(page->zoom(), 2.0);
+    drag(rig.window, onScreen(QPointF(300, 200)), onScreen(QPointF(303, 200)));
+    QCOMPARE(rig.page->items().size(), 1); // 3 world px = 6 screen px
+
+    // Zoomed out, 6 world px are 3 screen px: nothing.
+    pinch(rig.window, QPointF(320, 240), -0.75); // zoom 0.5
+    QCOMPARE(page->zoom(), 0.5);
+    drag(rig.window, onScreen(QPointF(100, 100)), onScreen(QPointF(106, 100)));
+    QCOMPARE(rig.page->items().size(), 1);
+
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 0); // the zoom-2 arrow was the only step
 }
 
 void PageTest::arrowMovesResizesDeletesLikeAStroke()
