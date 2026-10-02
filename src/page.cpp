@@ -853,6 +853,8 @@ void Page::startEditing(TextBox *box, bool isNew, const QPointF &localPress)
 
 void Page::commitEditing()
 {
+    if (!m_editing)
+        return;
     TextBox *box = m_editing;
     m_editing = nullptr; // first: the stopEdit signal must not re-enter
     disconnect(box, nullptr, this, nullptr); // the edit's two connections

@@ -5,6 +5,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra)
 
+# The exporter deliberately uses Qt's private RHI headers (see files.cpp);
+# this is the documented switch for "yes, on purpose", not a hidden problem.
+set(QT_NO_PRIVATE_MODULE_WARNING ON)
+
 find_package(Qt6 6.8 REQUIRED COMPONENTS Gui Qml Quick Test)
 find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
 qt_standard_project_setup()

@@ -44,8 +44,10 @@ public:
     // A dropped file from a file manager.
     Q_INVOKABLE void openDrop(const QUrl &url);
 
-    // `omasketch file.png`; main.cpp calls it after the first frame.
-    void openFile(const QString &path);
+    // `omasketch file.png`; main.cpp calls it after the first frame. Unlike
+    // a path-bar open it leaves the page clean: the file exists on disk, so
+    // closing again must not autosave a duplicate.
+    void openStartupFile(const QString &path);
     // The window is closing: quietly auto-save unsaved changes.
     void appClosing();
 
@@ -57,6 +59,7 @@ signals:
 
 private:
     void saveTo(const QString &path, bool toast);
+    void openFile(const QString &path); // decode and place; open/drop/startup
     void openImage(const QImage &image);
     bool writePng(const QRectF &worldRect, const QString &path);
     QRectF exportRect() const;     // drawing bounds plus margin

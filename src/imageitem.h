@@ -17,6 +17,8 @@ public:
 
     void setImage(const QImage &image, const QSizeF &size);
 
+    const QImage &image() const { return m_image; } // tests
+
     // The ink is the whole rect: a click inside grabs it, nothing outside.
     bool hitTest(const QPointF &worldPos, qreal tolerance) const override;
     void scaleGeometry(qreal sx, qreal sy) override;

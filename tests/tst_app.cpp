@@ -98,6 +98,7 @@ private slots:
     void selectFlowThroughMainQml();
     void textFlowThroughMainQml();
     void saveFlowThroughMainQml();
+    void closeAutosavesThroughMainQml();
 };
 
 void AppTest::mainQmlWiresThePageAndDraws()
@@ -278,6 +279,41 @@ void AppTest::saveFlowThroughMainQml()
     QCOMPARE(saved.size(), 1);
     QCOMPARE(toast.size(), 1);
     QVERIFY(toast.constFirst().constFirst().toString().startsWith("saved → ~/"));
+}
+
+void AppTest::closeAutosavesThroughMainQml()
+{
+    // A window close (Super+W / Super+Q on Hyprland) fires QQuickWindow's
+    // closing signal, and the wiring main.cpp sets must quietly auto-save
+    // the drawing into HOME/Pictures/Drawings.
+    QTemporaryDir home;
+    QVERIFY(home.isValid());
+    qputenv("HOME", home.path().toUtf8());
+
+    Tools tools;
+    Files files;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("Colors", paletteMap());
+    engine.rootContext()->setContextProperty("tools", &tools);
+    engine.rootContext()->setContextProperty("files", &files);
+    engine.loadFromModule("Omasketch", "Main");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    QVERIFY(window);
+    tools.attach(window);
+    Page *page = pageIn(window);
+    QVERIFY(page);
+    tools.setPage(page);
+    files.setPage(page);
+    QObject::connect(window, &QQuickWindow::closing, &files, &Files::appClosing);
+
+    QTest::keyClick(window, Qt::Key_D);
+    draw(*window, {{100, 300}, {150, 300}, {200, 300}, {250, 300}, {300, 300}});
+
+    QVERIFY(window->close());
+    const QStringList saved = QDir(home.filePath("Pictures/Drawings"))
+                                  .entryList(QDir::Files);
+    QCOMPARE(saved.size(), 1);
 }
 
 QTEST_MAIN(AppTest)

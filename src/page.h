@@ -81,7 +81,8 @@ public:
     void deleteSelection();
     // Stops the box being edited and makes the edit an undo step; nothing
     // happens when no box is editing. The shortcuts that still work while
-    // typing (save/open path bar, fresh page) call this first.
+    // typing (save/open path bar, fresh page) and the close-time autosave
+    // call this first.
     void commitEditing();
 
     // The topmost item within a few screen pixels of the world point.

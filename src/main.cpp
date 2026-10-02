@@ -61,7 +61,8 @@ int main(int argc, char *argv[])
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     tools.attach(window);
-    if (auto *page = pageIn(window)) {
+    Page *page = pageIn(window);
+    if (page) {
         tools.setPage(page);
         files.setPage(page);
     } else {
@@ -82,10 +83,10 @@ int main(int argc, char *argv[])
                      });
     QObject::connect(window, &QQuickWindow::closing, &files, &Files::appClosing);
     if (argc > 1) {
-        const QString path = QFileInfo(QGuiApplication::arguments().constLast())
+        const QString path = QFileInfo(QGuiApplication::arguments().value(1))
                                  .absoluteFilePath();
         QObject::connect(window, &QQuickWindow::frameSwapped, &files,
-                         [&files, path] { files.openFile(path); },
+                         [&files, path] { files.openStartupFile(path); },
                          Qt::SingleShotConnection);
     }
 

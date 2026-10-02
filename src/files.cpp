@@ -85,6 +85,8 @@ QImage renderWorldToImage(QQuickItem *world, const QRectF &worldRect, qreal scal
     batch->readBackTexture(flat, &readback);
     control.commandBuffer()->resourceUpdate(batch);
     control.endFrame(); // offscreen frames do not pipeline: the data is here
+    if (readback.data.isEmpty())
+        qWarning("omasketch: export readback came back empty");
 
     // Back exactly as it was; the visible page re-renders on its next frame.
     world->setParentItem(oldParent);
@@ -116,6 +118,33 @@ qreal exportScale(const Page *page)
     return page->window() ? qMax(1.0, page->window()->devicePixelRatio()) : 1.0;
 }
 
+// The size a new image item shows at: 1:1, shrunk to a little air inside
+// the view when the image is bigger (open centres it; paste keeps the
+// mouse corner).
+QSizeF displayedSize(const QImage &image, const Page *page)
+{
+    QSizeF size(image.size());
+    const qreal fit = qMin(1.0, qMin(0.9 * page->width() / size.width(),
+                                     0.9 * page->height() / size.height()));
+    if (fit < 1.0)
+        size *= fit;
+    return size;
+}
+
+// The texture only has to look sharp on screen: past twice the displayed
+// size at the device pixel ratio nothing can show, so a huge screenshot is
+// decimated at load instead of living on as a 256 MB GPU texture.
+QImage atScreenResolution(const QImage &image, const QSizeF &displayed, const Page *page)
+{
+    const qreal dpr = page->window() ? qMax(1.0, page->window()->devicePixelRatio()) : 1.0;
+    const qreal cap = 2 * dpr * qMax(displayed.width(), displayed.height());
+    const qreal longest = qMax(image.width(), image.height());
+    if (longest <= cap)
+        return image;
+    return image.scaled((QSizeF(image.size()) * (cap / longest)).toSize(),
+                        Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+}
+
 } // namespace
 
 Files::Files(QObject *parent)
@@ -143,8 +172,6 @@ void Files::confirm(const QString &path, const QString &mode)
 
 void Files::copySelection()
 {
-    if (!m_page)
-        return;
     QRectF world;
     const QList<PageItem *> selection = m_page->selection();
     if (!selection.isEmpty()) {
@@ -163,14 +190,15 @@ void Files::copySelection()
 
 void Files::paste()
 {
-    if (!m_page)
+    const QImage clipboard = QGuiApplication::clipboard()->image();
+    if (clipboard.isNull())
         return;
-    const QImage image = QGuiApplication::clipboard()->image();
-    if (image.isNull())
-        return;
-    // Top-left at the mouse, so the image lands where the eye is.
+    // Top-left at the mouse, so the image lands where the eye is; one
+    // bigger than the view shrinks to fit, like an open.
+    const QSizeF size = displayedSize(clipboard, m_page);
     const QPointF world = m_page->worldPos() + m_page->mouse() / m_page->zoom();
-    m_page->addImage(image, world);
+    const QImage image = atScreenResolution(clipboard, size, m_page);
+    m_page->addImage(image, world, size);
 }
 
 void Files::openDrop(const QUrl &url)
@@ -187,9 +215,18 @@ void Files::openFile(const QString &path)
         emit toastRequested("no image at " + shortHome(path));
 }
 
+void Files::openStartupFile(const QString &path)
+{
+    openFile(path);
+    m_page->markClean();
+}
+
 void Files::appClosing()
 {
-    if (!m_page || m_page->isClean() || !m_page->drawingBounds().isValid())
+    // A box being edited commits first, so its text lands on the undo stack
+    // and the autosave below writes it out too.
+    m_page->commitEditing();
+    if (m_page->isClean() || !m_page->drawingBounds().isValid())
         return; // a blank or already-saved page is never written
     saveTo(m_target.isEmpty() ? defaultPath() : m_target, false);
 }
@@ -212,19 +249,16 @@ void Files::saveTo(const QString &path, bool toast)
     }
 }
 
-void Files::openImage(const QImage &image)
+void Files::openImage(const QImage &decoded)
 {
-    if (!m_page || image.isNull())
+    if (decoded.isNull())
         return;
     // 1:1 logical size, shrunk to fit and centred in the view (a little air
     // around it when it has to shrink).
-    QSizeF size(image.size());
-    const qreal fit = qMin(1.0, qMin(0.9 * m_page->width() / size.width(),
-                                     0.9 * m_page->height() / size.height()));
-    if (fit < 1.0)
-        size *= fit;
+    const QSizeF size = displayedSize(decoded, m_page);
     const QPointF viewCentre((m_page->width() / 2 - m_page->worldPos().x()) / m_page->zoom(),
                              (m_page->height() / 2 - m_page->worldPos().y()) / m_page->zoom());
+    const QImage image = atScreenResolution(decoded, size, m_page);
     m_page->addImage(image, viewCentre - QPointF(size.width(), size.height()) / 2, size);
 }
 

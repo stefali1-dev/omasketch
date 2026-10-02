@@ -52,7 +52,7 @@ Window {
         anchors.fill: parent
         onDropped: (drop) => {
             for (const url of drop.urls)
-                if (url.toString().endsWith(".png"))
+                if (url.toString().toLowerCase().endsWith(".png"))
                     files.openDrop(url)
         }
     }

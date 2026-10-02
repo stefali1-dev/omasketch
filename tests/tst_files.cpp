@@ -7,6 +7,8 @@
 #include <QtGui/QPainter>
 #include <QtGui/QWheelEvent>
 #include <QtQuick/QQuickWindow>
+#include <QtQml/QQmlContext>
+#include <QtQml/QQmlEngine>
 #include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -18,6 +20,7 @@
 #include "imageitem.h"
 #include "palette.h"
 #include "page.h"
+#include "textbox.h"
 #include "tools.h"
 
 namespace {
@@ -28,6 +31,7 @@ struct Rig
     QQuickWindow window;
     Tools tools;
     Files files;
+    QQmlEngine engine;
     Page *page = nullptr;
 
     explicit Rig(QSizeF size = QSizeF(640, 480))
@@ -35,6 +39,10 @@ struct Rig
         window.resize(size.toSize());
         window.setColor(palette::page);
         page = new Page(window.contentItem());
+        // The text editor is created through the page's QML context, like
+        // the engine-loaded page main.cpp works with.
+        QQmlEngine::setContextForObject(
+            page, new QQmlContext(engine.rootContext()));
         page->setSize(size);
         tools.attach(&window);
         tools.setPage(page);
@@ -92,6 +100,12 @@ void drag(QQuickWindow &window, const QPointF &from, const QPointF &to)
     mouse(window, QEvent::MouseButtonRelease, to);
 }
 
+void type(QQuickWindow &window, const QString &text)
+{
+    for (const QChar c : text)
+        QTest::keyClick(&window, c.toLatin1());
+}
+
 // The offscreen cursor only synthesizes a hover on the first move; post the
 // hover event directly, like tst_page does.
 void hover(QQuickWindow &window, const QPointF &pos)
@@ -140,9 +154,12 @@ private slots:
     void emptyPageWritesNothing();
     void openPlacesTheImageCentredAndUndoable();
     void openShrinksABiggerImageToFit();
+    void hugeImagesLoadDecimated();
     void clipboardRoundTrip();
     void imageItemMovesResizesErasesUndoes();
     void recolourSkipsImages();
+    void startupOpenLeavesThePageClean();
+    void closingCommitsTheBoxBeingEdited();
     void closingAutosavesOnlyUnsavedChanges();
 
 private:
@@ -272,10 +289,10 @@ void FilesTest::openPlacesTheImageCentredAndUndoable()
     QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
     QCOMPARE(rig.page->items().size(), 1);
 
-    // openFile (the command line and drops) loads the same way.
+    // A drop (openDrop, the other openFile entry) loads the same way.
     rig.page->undo();
     QCOMPARE(rig.page->items().size(), 0);
-    rig.files.openFile(path);
+    rig.files.openDrop(QUrl::fromLocalFile(path));
     QCOMPARE(rig.page->items().size(), 1);
 
     // A non-image file says so and adds nothing.
@@ -286,7 +303,7 @@ void FilesTest::openPlacesTheImageCentredAndUndoable()
         file.write("not an image");
     }
     QSignalSpy toast(&rig.files, &Files::toastRequested);
-    rig.files.openFile(text);
+    rig.files.openDrop(QUrl::fromLocalFile(text));
     QCOMPARE(rig.page->items().size(), 1);
     QCOMPARE(toast.size(), 1);
 }
@@ -306,6 +323,36 @@ void FilesTest::openShrinksABiggerImageToFit()
     QVERIFY(qAbs(image->width() - 576.0) < 0.01);
     QVERIFY(qAbs(image->height() - 345.6) < 0.01);
     QCOMPARE(image->bounds().center(), QPointF(320, 240));
+}
+
+void FilesTest::hugeImagesLoadDecimated()
+{
+    freshHome();
+    Rig rig;
+    // A 4000x3000 screenshot opened into the 640x480 view shows at 576x432;
+    // the texture is cut to twice that (the dpr is 1 offscreen), instead of
+    // the 48 MB the full decode would keep on the GPU.
+    const QString path = m_home.filePath("huge.png");
+    writeTestPng(path, {4000, 3000});
+    rig.files.confirm(path, "open");
+    auto *image = qobject_cast<ImageItem *>(rig.page->items().constFirst());
+    QVERIFY(image);
+    QCOMPARE(image->width(), 576.0);
+    QCOMPARE(image->height(), 432.0);
+    QCOMPARE(image->image().size(), QSize(1152, 864));
+
+    // A big paste gets the same treatment; small pastes stay 1:1
+    // (clipboardRoundTrip pins that).
+    QImage big(3000, 2000, QImage::Format_ARGB32);
+    big.fill(Qt::red);
+    QGuiApplication::clipboard()->setImage(big);
+    hover(rig.window, QPointF(200, 200));
+    rig.files.paste();
+    auto *pasted = qobject_cast<ImageItem *>(rig.page->items().constLast());
+    QVERIFY(pasted);
+    QCOMPARE(pasted->width(), 576.0); // shrunk to fit, like an open
+    QCOMPARE(pasted->height(), 384.0);
+    QCOMPARE(pasted->image().size(), QSize(1152, 768));
 }
 
 void FilesTest::clipboardRoundTrip()
@@ -398,6 +445,41 @@ void FilesTest::recolourSkipsImages()
     QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
     QCOMPARE(pixel(rig.window, QPointF(200, 300)), palette::ink);
     QCOMPARE(rig.page->items().size(), 2);
+}
+
+void FilesTest::startupOpenLeavesThePageClean()
+{
+    freshHome();
+    Rig rig;
+    const QString path = m_home.filePath("in.png");
+    writeTestPng(path, {80, 60});
+
+    // `omasketch file.png` then close without edits: the file exists on
+    // disk, so closing must not autosave a duplicate next to it.
+    rig.files.openStartupFile(path);
+    QCOMPARE(rig.page->items().size(), 1);
+    QVERIFY(rig.page->isClean());
+
+    rig.files.appClosing();
+    QVERIFY(!QDir(m_home.filePath("Pictures")).exists());
+}
+
+void FilesTest::closingCommitsTheBoxBeingEdited()
+{
+    freshHome();
+    Rig rig;
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(300, 300));
+    QVERIFY(rig.page->editing());
+    type(rig.window, QStringLiteral("scratch"));
+    QVERIFY(savedNames(m_home).isEmpty());
+
+    rig.files.appClosing(); // the commit lands on the undo stack first
+    QCOMPARE(rig.page->items().size(), 1);
+    auto *box = qobject_cast<TextBox *>(rig.page->items().constFirst());
+    QVERIFY(box);
+    QCOMPARE(box->text(), QStringLiteral("scratch"));
+    QCOMPARE(savedNames(m_home).size(), 1); // the autosave carried the text
 }
 
 void FilesTest::closingAutosavesOnlyUnsavedChanges()
