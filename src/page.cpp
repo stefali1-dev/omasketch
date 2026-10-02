@@ -510,11 +510,14 @@ void Page::mousePressEvent(QMouseEvent *event)
 {
     m_mouse = event->position();
     m_mouseSeen = true;
+    // A press takes over the world transform: a stroke or arrow mirrors it
+    // while it draws, a drag reads world points under the cursor. An ease
+    // still running (Ctrl+=, Super+0) would keep moving both underneath.
+    killAnim();
     if (event->button() != Qt::LeftButton || m_drawing)
         return;
     if (m_spaceHeld) {
         m_panning = true;
-        killAnim(); // the drag owns the world position now, as with the wheel
         m_panGrab = event->position();
         m_panStart = m_world->position();
         emit panningChanged();

@@ -185,6 +185,7 @@ private slots:
     void wheelPansIncludingShiftAndHorizontal();
     void spacePansWithHandCursor();
     void spacePanKillsTheZoomEase();
+    void pressKillsTheZoomEase();
     void quitMidStrokeFreesTheStroke();
     void wheelZoomStaysAnchoredAtTheCursor();
     void keyboardZoomStaysAnchoredAndClamps();
@@ -383,6 +384,31 @@ void PageTest::spacePanKillsTheZoomEase()
 
     QTest::mouseRelease(&rig.window, Qt::LeftButton, {}, QPoint(400, 300));
     QTest::keyRelease(&rig.window, Qt::Key_Space);
+}
+
+// A stroke or arrow pressed while a zoom ease (Ctrl+=, Super+0) still runs
+// used to capture the world transform at press time and drift off the
+// pointer until the ease ended: its start point no longer sat under the
+// cursor it was drawn from.
+void PageTest::pressKillsTheZoomEase()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    const QPointF press(200, 200);
+    rig.page->zoomStep(1);   // the 120 ms ease starts
+    QTest::qWait(40);        // ...and is still running at the press
+    QTest::mousePress(&rig.window, Qt::LeftButton, {}, press.toPoint());
+    const QPointF release(300, 260);
+    QTest::mouseMove(&rig.window, release.toPoint());
+    QTest::qWait(120);       // an ease left running would move the world here
+    QTest::mouseRelease(&rig.window, Qt::LeftButton, {}, release.toPoint());
+
+    QCOMPARE(rig.page->items().size(), 1);
+    auto *stroke = static_cast<Stroke *>(rig.page->items().constFirst());
+    QCOMPARE(stroke->smoothedPath().constFirst(), worldUnder(rig.page, press));
+    QCOMPARE(stroke->smoothedPath().constLast(), worldUnder(rig.page, release));
 }
 
 void PageTest::quitMidStrokeFreesTheStroke()
