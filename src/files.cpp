@@ -128,12 +128,12 @@ qreal exportScale(const Page *page)
 
 // The size a new image item shows at: 1:1, shrunk to a little air inside
 // the view when the image is bigger (open centres it; paste keeps the
-// mouse corner).
+// mouse corner). World units: the view is width()/zoom world units across.
 QSizeF displayedSize(const QImage &image, const Page *page)
 {
     QSizeF size(image.size());
-    const qreal fit = qMin(1.0, qMin(0.9 * page->width() / size.width(),
-                                     0.9 * page->height() / size.height()));
+    const qreal fit = qMin(1.0, qMin(0.9 * page->width() / (page->zoom() * size.width()),
+                                     0.9 * page->height() / (page->zoom() * size.height())));
     if (fit < 1.0)
         size *= fit;
     return size;

@@ -159,6 +159,7 @@ private slots:
     void exportBeyondTheTextureLimitCapsTheScale();
     void openPlacesTheImageCentredAndUndoable();
     void openShrinksABiggerImageToFit();
+    void openFitsTheZoomedView();
     void hugeImagesLoadDecimated();
     void clipboardRoundTrip();
     void pasteLandsAtTheMouseWhereverTheViewSits();
@@ -262,11 +263,10 @@ void FilesTest::freshPageForgetsTheSaveTarget()
     const QString path = m_home.filePath("first.png");
     rig.files.confirm(path, "save");
     QCOMPARE(rig.files.saveTarget(), path);
-    const QByteArray before = [&path] {
-        QFile file(path);
-        file.open(QIODevice::ReadOnly);
-        return file.readAll();
-    }();
+    QFile firstFile(path);
+    QVERIFY(firstFile.open(QIODevice::ReadOnly));
+    const QByteArray before = firstFile.readAll();
+    firstFile.close();
 
     QTest::keyClick(&rig.window, Qt::Key_N, Qt::ControlModifier);
     QCOMPARE(rig.page->items().size(), 0);
@@ -277,8 +277,7 @@ void FilesTest::freshPageForgetsTheSaveTarget()
 
     QVERIFY(rig.files.saveTarget() != path);
     QCOMPARE(savedNames(m_home).size(), 1);
-    QFile firstFile(path);
-    firstFile.open(QIODevice::ReadOnly);
+    QVERIFY(firstFile.open(QIODevice::ReadOnly));
     QCOMPARE(firstFile.readAll(), before); // untouched
 }
 
@@ -421,6 +420,29 @@ void FilesTest::openShrinksABiggerImageToFit()
     QVERIFY(qAbs(image->width() - 576.0) < 0.01);
     QVERIFY(qAbs(image->height() - 345.6) < 0.01);
     QCOMPARE(image->bounds().center(), QPointF(320, 240));
+}
+
+// The fit is in world units: at zoom 1.25 the view holds 640/1.25 world
+// units across, so a big image shrinks further and centres on the view
+// centre's world point.
+void FilesTest::openFitsTheZoomedView()
+{
+    freshHome();
+    Rig rig;
+    wheel(rig.window, QPointF(320, 240), QPoint(0, 120)); // pan down 120
+    wheel(rig.window, QPointF(320, 240), QPoint(0, 120), Qt::ControlModifier);
+    QCOMPARE(rig.page->zoom(), 1.25);
+    const QString path = m_home.filePath("big.png");
+    writeTestPng(path, {2000, 1200});
+
+    rig.files.confirm(path, "open");
+    QCOMPARE(rig.page->items().size(), 1);
+    auto *image = qobject_cast<ImageItem *>(rig.page->items().constFirst());
+    QVERIFY(image);
+    QVERIFY(qAbs(image->width() - 460.8) < 0.01);  // 0.9 * 640 / 1.25
+    QVERIFY(qAbs(image->height() - 276.48) < 0.01);
+    // The world point under the view centre (the zoom kept the anchored one).
+    QCOMPARE(image->bounds().center(), QPointF(320, 120));
 }
 
 void FilesTest::hugeImagesLoadDecimated()
