@@ -527,7 +527,16 @@ void Page::mousePressEvent(QMouseEvent *event)
         auto *stroke = new Stroke;
         stroke->setColor(m_ink);
         stroke->setStrokeWidth(m_strokeWidth);
-        stroke->setParentItem(m_world); // visible while drawing
+        // While drawing, the stroke lives on the page under a mirror of the
+        // world's transform: its geometry is rebuilt on every pointer move,
+        // and as a world child each rebuild would re-upload the world's big
+        // merged batches (a hitch every few frames on full pages). The world
+        // cannot move during a stroke - pan and zoom are blocked - so the
+        // mirror holds; finishDrawing returns the finished stroke to the
+        // world.
+        stroke->setParentItem(this);
+        stroke->setPosition(m_world->position());
+        stroke->setScale(m_zoom);
         stroke->begin(toWorld(event->position()));
         m_drawing = stroke;
         event->accept();
@@ -537,7 +546,9 @@ void Page::mousePressEvent(QMouseEvent *event)
         auto *arrow = new Arrow;
         arrow->setColor(m_ink);
         arrow->setStrokeWidth(m_strokeWidth);
-        arrow->setParentItem(m_world); // visible while drawing
+        arrow->setParentItem(this); // the stroke's mirror, same reason
+        arrow->setPosition(m_world->position());
+        arrow->setScale(m_zoom);
         m_pressWorld = toWorld(event->position());
         arrow->begin(m_pressWorld);
         m_drawing = arrow;
@@ -902,6 +913,11 @@ void Page::finishDrawing(const QPointF &world, bool snap)
     } else {
         static_cast<Stroke *>(m_drawing)->addPoint(world); // the final build
     }
+    // Back into the world at identity: the per-frame uploads are done and
+    // the batch can merge the finished item with the rest of the page.
+    m_drawing->setPosition(QPointF(0, 0));
+    m_drawing->setScale(1);
+    m_drawing->setParentItem(m_world);
     m_undo->push(new AddItem(this, m_drawing)); // redo re-adds it: a no-op
     m_drawing = nullptr;
 }

@@ -52,6 +52,9 @@ public:
 
     bool isPanning() const { return m_panning; }
     bool isDrawing() const { return m_drawing != nullptr; }
+    // The item being drawn, while it is (lives on the page, not the world:
+    // see the Draw case in mousePressEvent). Introspection for the tests.
+    PageItem *drawing() const { return m_drawing; }
     // The box being edited, or null. Not committed, so not in items() yet.
     TextBox *editing() const { return m_editing; }
 

@@ -173,6 +173,7 @@ private slots:
     void pinchZoomsSmoothly();
     void ctrlZeroBringsTheDrawingBack();
     void panAndZoomRebuildNoGeometry();
+    void aDrawingStrokeMirrorsTheWorldThenJoinsIt();
     void clickSelectsOnlyNearTheLine();
     void clickPicksTheTopmostStroke();
     void shiftClickAddsAndRemoves();
@@ -371,11 +372,11 @@ void PageTest::quitMidStrokeFreesTheStroke()
     QTest::mouseMove(&rig.window, QPoint(200, 160));
     QCOMPARE(rig.page->items().size(), 0); // in progress, not on the stack
 
-    // The in-progress stroke has no QObject owner; find it under the world.
-    QQuickItem *world = rig.page->childItems().constFirst();
-    QCOMPARE(world->childItems().size(), 1);
+    // The in-progress stroke has no QObject owner; find it on the page
+    // (it lives outside the world while drawing).
+    QVERIFY(rig.page->childItems().contains(rig.page->drawing()));
     bool freed = false;
-    QObject::connect(world->childItems().constFirst(), &QObject::destroyed, this,
+    QObject::connect(rig.page->drawing(), &QObject::destroyed, this,
                      [&freed] { freed = true; });
 
     delete rig.page; // quitting mid-stroke must not leak it
@@ -479,6 +480,39 @@ void PageTest::ctrlZeroBringsTheDrawingBack()
     // The stroke is centred and its pixels are back where the math says.
     const QPointF strokeMid = rig.page->worldPos() + QPointF(200, 300);
     QCOMPARE(pixel(rig.window, strokeMid), palette::ink);
+}
+
+// While drawing, the in-progress stroke lives on the page under a mirror
+// of the world's transform (page.cpp: it keeps the per-frame geometry
+// uploads out of the world's merged batches). Pin the mirror and the
+// rendering: the ink still passes through the pointer at zoom 2, and the
+// finished stroke joins the world at identity.
+void PageTest::aDrawingStrokeMirrorsTheWorldThenJoinsIt()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    pinch(rig.window, QPointF(320, 240), 1.0); // zoom 2
+    QCOMPARE(rig.page->zoom(), 2.0);
+
+    QTest::mouseMove(&rig.window, QPoint(300, 240));
+    QTest::mousePress(&rig.window, Qt::LeftButton, {}, QPoint(300, 240));
+    QTest::mouseMove(&rig.window, QPoint(340, 240));
+
+    PageItem *drawing = rig.page->drawing();
+    QVERIFY(drawing);
+    QVERIFY(!rig.page->items().contains(drawing));
+    QCOMPARE(drawing->parentItem(), rig.page);
+    QCOMPARE(drawing->scale(), rig.page->zoom());
+    QCOMPARE(drawing->position(), rig.page->worldPos());
+    QCOMPARE(pixel(rig.window, QPointF(320, 240)), palette::ink); // forces a render
+
+    QTest::mouseRelease(&rig.window, Qt::LeftButton, {}, QPoint(340, 240));
+    QCOMPARE(drawing->parentItem(), rig.page->worldItem());
+    QCOMPARE(drawing->scale(), 1.0);
+    QCOMPARE(drawing->position(), QPointF(0, 0));
+    QVERIFY(rig.page->items().contains(drawing));
 }
 
 void PageTest::panAndZoomRebuildNoGeometry()
