@@ -7,6 +7,9 @@
 // screen pixels; page.cpp hit-tests the handles with the grab distance.
 constexpr qreal kHandleRadius = 4.5;
 constexpr qreal kHandleGrab = 9;
+// Air between the selection outline and the ink, in screen pixels; the page
+// pads the selection bounds by it so the outline never sits on the lines.
+constexpr qreal kBoxPad = 6;
 
 // The accent rectangle the select tool draws: around the selection with four
 // round corner handles, or as the marquee box while it is dragged (no

@@ -58,32 +58,6 @@ private:
     PageItem *m_item;
 };
 
-class ClearPage : public QUndoCommand
-{
-public:
-    ClearPage(Page *page, const QList<PageItem *> &items)
-        : m_page(page), m_items(items)
-    {
-        setText("new page");
-    }
-
-    void undo() override
-    {
-        for (PageItem *item : m_items)
-            m_page->addItem(item);
-    }
-
-    void redo() override
-    {
-        for (PageItem *item : m_items)
-            m_page->removeItem(item);
-    }
-
-private:
-    Page *m_page;
-    QList<PageItem *> m_items;
-};
-
 class MoveItems : public QUndoCommand
 {
 public:
@@ -147,15 +121,25 @@ class DeleteItems : public QUndoCommand
 {
 public:
     DeleteItems(Page *page, const QList<PageItem *> &items)
-        : m_page(page), m_items(items)
+        : m_page(page)
     {
+        // Topmost first, each with its stacking position: redo then removes
+        // without shifting the positions still to remove, and undo can slot
+        // every item back exactly where it was.
+        const QList<PageItem *> stack = page->items();
+        for (int i = stack.size() - 1; i >= 0; --i) {
+            if (items.contains(stack[i])) {
+                m_items.append(stack[i]);
+                m_indices.append(i);
+            }
+        }
         setText("delete");
     }
 
     void undo() override
     {
-        for (PageItem *item : m_items)
-            m_page->addItem(item);
+        for (int i = m_items.size() - 1; i >= 0; --i)
+            m_page->restoreItem(m_items[i], m_indices[i]);
     }
 
     void redo() override
@@ -166,7 +150,8 @@ public:
 
 private:
     Page *m_page;
-    QList<PageItem *> m_items;
+    QList<PageItem *> m_items; // topmost first
+    QList<int> m_indices;      // stacking position each item was at
 };
 
 class RecolorItems : public QUndoCommand
@@ -200,8 +185,11 @@ private:
 class EraseItems : public QUndoCommand
 {
 public:
-    EraseItems(Page *page, const QList<PageItem *> &items)
-        : m_page(page), m_items(items)
+    // The items in the order the drag erased them (topmost down), with the
+    // stacking position each was at: undo re-adds them back to front, so
+    // erased strokes come back under the ones that stayed.
+    EraseItems(Page *page, const QList<PageItem *> &items, const QList<int> &indices)
+        : m_page(page), m_items(items), m_indices(indices)
     {
         setText("erase");
     }
@@ -209,7 +197,7 @@ public:
     void undo() override
     {
         for (int i = m_items.size() - 1; i >= 0; --i)
-            m_page->restoreItem(m_items[i]);
+            m_page->restoreItem(m_items[i], m_indices[i]);
     }
 
     void redo() override
@@ -221,6 +209,7 @@ public:
 private:
     Page *m_page;
     QList<PageItem *> m_items;
+    QList<int> m_indices;
 };
 
 Page::Page(QQuickItem *parent)
@@ -265,17 +254,22 @@ void Page::setInk(Tools::Ink ink)
     case Tools::Red:   color = palette::red;  break;
     case Tools::Blue:  color = palette::blue; break;
     }
+    // 1/2/3 recolour the selection as well as setting the ink; one undo step.
+    // Runs even when the ink already matches — the selection may differ —
+    // and only mint a command when some selected item actually changes.
+    QList<PageItem *> changed;
+    QList<QColor> from;
+    for (PageItem *item : m_selection) {
+        if (item->color() != color) {
+            changed.append(item);
+            from.append(item->color());
+        }
+    }
+    if (!changed.isEmpty())
+        m_undo->push(new RecolorItems(changed, from, color));
     if (m_ink == color)
         return;
     m_ink = color;
-    // 1/2/3 recolour the selection as well as setting the ink; one undo step.
-    if (!m_selection.isEmpty()) {
-        QList<QColor> from;
-        from.reserve(m_selection.size());
-        for (PageItem *item : m_selection)
-            from.append(item->color());
-        m_undo->push(new RecolorItems(m_selection, from, color));
-    }
 }
 
 void Page::undo()
@@ -297,7 +291,16 @@ void Page::newPage()
     if (m_stroke || m_items.isEmpty() || m_drag != Drag::None)
         return;
     clearSelection();
-    m_undo->push(new ClearPage(this, m_items));
+    m_undo->push(new DeleteItems(this, m_items));
+}
+
+bool Page::escape()
+{
+    if (m_drag == Drag::None && m_selection.isEmpty())
+        return false;
+    cancelDrag(); // a held drag must not commit after the Esc
+    clearSelection();
+    return true;
 }
 
 void Page::zoomStep(int direction)
@@ -328,7 +331,8 @@ void Page::setSpaceHeld(bool held)
 
 void Page::pinch(QNativeGestureEvent *event)
 {
-    if (event->gestureType() != Qt::ZoomNativeGesture || m_stroke || m_panning)
+    if (event->gestureType() != Qt::ZoomNativeGesture || m_stroke || m_panning
+        || m_drag != Drag::None)
         return;
     setZoomAt(m_zoom * (1 + event->value()), mapFromScene(event->scenePosition()));
 }
@@ -368,14 +372,23 @@ void Page::eraseItem(PageItem *item)
     fade->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
-void Page::restoreItem(PageItem *item)
+void Page::restoreItem(PageItem *item, int index)
 {
     // Stop a fade that is still running (an undo right after a redo).
     const QList<QPropertyAnimation *> fades = item->findChildren<QPropertyAnimation *>();
     for (QPropertyAnimation *fade : fades)
         fade->stop(); // DeleteWhenStopped
     item->setOpacity(1.0);
-    addItem(item);
+    // Back at the old stacking position: right below its successor in the
+    // list, which is the z-order the world's children follow.
+    if (index < 0 || index >= m_items.size())
+        m_items.append(item);
+    else
+        m_items.insert(index, item);
+    item->setParentItem(m_world);
+    const int at = m_items.indexOf(item);
+    if (at + 1 < m_items.size())
+        item->stackBefore(m_items[at + 1]);
 }
 
 QRectF Page::drawingBounds() const
@@ -538,6 +551,7 @@ void Page::mouseReleaseEvent(QMouseEvent *event)
     m_dragItems.clear();
     m_dragBasePos.clear();
     m_erased.clear();
+    m_erasedIndices.clear();
     updateSelectionBox(); // marquee box becomes the selection box
     updateHoverCursor(m_mouse);
     event->accept();
@@ -549,6 +563,8 @@ void Page::wheelEvent(QWheelEvent *event)
         return;
     const Qt::KeyboardModifiers mods = event->modifiers();
     if (mods & (Qt::ControlModifier | Qt::MetaModifier)) {
+        if (m_drag != Drag::None)
+            return; // zooming mid-drag shifts the world under the drag
         // Super+scroll arrives as Ctrl+wheel, one 120-notch per step.
         setZoomAt(m_zoom * qPow(kZoomStep, event->angleDelta().y() / 120.0),
                   event->position());
@@ -593,6 +609,11 @@ QRectF Page::worldSelectionBounds() const
         else
             bounds = item->bounds();
     }
+    // A few screen pixels of air so the outline never sits on the ink; the
+    // handles sit on these padded corners.
+    if (bounds.isValid())
+        bounds.adjust(-kBoxPad / m_zoom, -kBoxPad / m_zoom,
+                      kBoxPad / m_zoom, kBoxPad / m_zoom);
     return bounds;
 }
 
@@ -635,13 +656,20 @@ int Page::handleAt(const QPointF &pagePos) const
     const QRectF rect = selectionRect();
     if (!rect.isValid())
         return -1;
+    // The nearest corner within grab range, not the first one: on a flat
+    // selection two handles can both be in range a few pixels apart.
     const QPointF corners[4] = {rect.topLeft(), rect.topRight(),
                                 rect.bottomRight(), rect.bottomLeft()};
+    int nearest = -1;
+    qreal best = kHandleGrab;
     for (int i = 0; i < 4; ++i) {
-        if (QLineF(pagePos, corners[i]).length() <= kHandleGrab)
-            return i;
+        const qreal d = QLineF(pagePos, corners[i]).length();
+        if (d <= best) {
+            best = d;
+            nearest = i;
+        }
     }
-    return -1;
+    return nearest;
 }
 
 void Page::updateHoverCursor(const QPointF &pagePos)
@@ -678,6 +706,14 @@ void Page::pressSelect(QMouseEvent *event)
         event->accept();
         return;
     }
+    // Inside the selection box the whole selection moves, ink or not (the
+    // Figma and Excalidraw convention); a click without a drag keeps it.
+    if (!shift && !m_selection.isEmpty()
+        && selectionRect().contains(event->position())) {
+        startMove();
+        event->accept();
+        return;
+    }
     if (item) {
         if (!m_selection.contains(item))
             setSelection({item});
@@ -692,6 +728,7 @@ void Page::pressSelect(QMouseEvent *event)
     m_marqueeBase = shift ? m_selection : QList<PageItem *>();
     if (!shift)
         m_selection.clear();
+    updateSelectionBox(); // an old box must not linger until the first move
     if (window())
         window()->setCursor(Qt::CrossCursor);
     event->accept();
@@ -770,6 +807,7 @@ void Page::eraseAt(const QPointF &worldPos)
         PageItem *item = m_items[i];
         if (item->hitTest(worldPos, radius)) {
             m_erased.append(item);
+            m_erasedIndices.append(i);
             eraseItem(item);
         }
     }
@@ -806,14 +844,14 @@ void Page::releaseResize()
 void Page::releaseErase()
 {
     if (!m_erased.isEmpty())
-        m_undo->push(new EraseItems(this, m_erased));
+        m_undo->push(new EraseItems(this, m_erased, m_erasedIndices));
 }
 
 void Page::cancelDrag()
 {
     if (m_drag == Drag::Erase && !m_erased.isEmpty()) {
         // Keep what the drag already erased undoable.
-        m_undo->push(new EraseItems(this, m_erased));
+        m_undo->push(new EraseItems(this, m_erased, m_erasedIndices));
     }
     if (m_drag == Drag::Move || m_drag == Drag::Resize) {
         for (int i = 0; i < m_dragItems.size(); ++i) {
@@ -825,6 +863,7 @@ void Page::cancelDrag()
     m_dragItems.clear();
     m_dragBasePos.clear();
     m_erased.clear();
+    m_erasedIndices.clear();
 }
 
 QPointF Page::anchorPoint() const

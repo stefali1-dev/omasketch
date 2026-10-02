@@ -115,10 +115,9 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
                 if (m_page) m_page->deleteSelection();
                 break;
             case Qt::Key_Escape:
-                // First Esc deselects; the next one returns to the select tool.
-                if (m_page && !m_page->selection().isEmpty())
-                    m_page->clearSelection();
-                else
+                // First Esc cancels a drag and deselects; the next one
+                // returns to the select tool.
+                if (!(m_page && m_page->escape()))
                     setTool(Select);
                 break;
             default:             break;
@@ -200,10 +199,14 @@ void Tools::setTool(Tool tool)
 
 void Tools::setInk(Ink ink)
 {
-    if (m_ink == ink)
-        return;
-    m_ink = ink;
-    emit inkChanged();
+    if (m_ink != ink) {
+        m_ink = ink;
+        emit inkChanged();
+    } else if (m_page) {
+        // The ink already matches, but a differently coloured selection
+        // must still recolour (1/2/3 on a selection drawn in another colour).
+        m_page->setInk(m_ink);
+    }
 }
 
 void Tools::applyCursor()

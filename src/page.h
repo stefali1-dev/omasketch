@@ -41,6 +41,11 @@ public:
     void setSpaceHeld(bool held);
     void pinch(QNativeGestureEvent *event);
 
+    // Esc, first job: cancel an in-flight drag, then clear the selection.
+    // False when there was neither, so the caller can fall back to the
+    // tool switch (the second Esc job).
+    bool escape();
+
     bool isPanning() const { return m_panning; }
     bool isDrawing() const { return m_stroke != nullptr; }
 
@@ -67,7 +72,9 @@ public:
     // Erase with the quick fade. Idempotent: an erase drag already removed
     // its items live, so the command's redo must not re-fade them.
     void eraseItem(PageItem *item);
-    void restoreItem(PageItem *item);
+    // Undo of a delete or erase: stop a fade still running, then put the
+    // item back at its old stacking position (-1 appends).
+    void restoreItem(PageItem *item, int index);
 
 signals:
     void panningChanged();
@@ -126,6 +133,7 @@ private:
     QRectF m_marqueeRect;             // marquee in world coordinates
     QList<PageItem *> m_marqueeBase;  // selection to add to (Shift)
     QList<PageItem *> m_erased;       // items erased in the current drag
+    QList<int> m_erasedIndices;       // their stacking positions, for the undo
     int m_resizeCorner = 0;           // grabbed handle: 0=TL 1=TR 2=BR 3=BL
     QPointF m_resizeAnchor;           // the opposite corner (world)
     QPointF m_resizeDiagonal;         // grabbed corner minus anchor, at start

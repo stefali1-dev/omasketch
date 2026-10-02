@@ -147,6 +147,15 @@ private slots:
     void ctrlASelectsAllAndSwitchesToSelect();
     void escapeClearsTheSelectionFirst();
     void switchingToolsClearsTheSelection();
+    void selectionBoxKeepsAPadAroundTheInk();
+    void handleGrabPicksTheNearestCorner();
+    void pressInsideTheBoxMovesTheSelection();
+    void recolourWorksWhenTheInkAlreadyMatches();
+    void escapeCancelsADragThenClearsTheSelection();
+    void undoOfDeleteRestoresTheStackingOrder();
+    void undoOfEraseRestoresTheStackingOrder();
+    void startingAMarqueeHidesTheOldBoxAtOnce();
+    void zoomIsBlockedMidDrag();
 };
 
 void PageTest::drawShowsStrokeAndUndoRedoRemovesRestoresIt()
@@ -569,9 +578,10 @@ void PageTest::resizeKeepsTheOppositeCornerAndProportions()
     drag(rig.window, before.bottomRight(), before.bottomRight() + QPointF(60, 60));
     const QRectF after = rig.page->selectionRect();
     // The corner is anchored for the ink, but the selection box includes the
-    // line-width margin, which does not scale; it can shift by (s-1)*width.
-    QVERIFY(qAbs(after.topLeft().x() - before.topLeft().x()) < 3);
-    QVERIFY(qAbs(after.topLeft().y() - before.topLeft().y()) < 3);
+    // line-width margin and the constant pad, which do not scale; the box
+    // corner can shift by (margin + pad) * (s - 1), here ~4 px.
+    QVERIFY(qAbs(after.topLeft().x() - before.topLeft().x()) < 5);
+    QVERIFY(qAbs(after.topLeft().y() - before.topLeft().y()) < 5);
     QVERIFY(after.width() > before.width());
     QVERIFY(qAbs(after.width() / after.height() - before.width() / before.height())
             < 0.01);
@@ -777,6 +787,204 @@ void PageTest::switchingToolsClearsTheSelection()
     QCOMPARE(rig.page->selection().size(), 0);
     QTest::keyClick(&rig.window, Qt::Key_V);
     QCOMPARE(rig.page->selection().size(), 0);
+}
+
+void PageTest::selectionBoxKeepsAPadAroundTheInk()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 200}, {150, 200}, {200, 200}, {250, 200}, {300, 200}});
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(150, 200));
+
+    // The outline floats a few screen pixels off the ink instead of sitting
+    // on top of the line; the handles sit on these padded corners.
+    QCOMPARE(rig.page->selectionRect(),
+             rig.page->items().constFirst()->bounds().adjusted(-6, -6, 6, 6));
+}
+
+void PageTest::handleGrabPicksTheNearestCorner()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    // A flat line: its box is short enough that a press near the right edge
+    // is within grab range of both right-hand handles. The nearer one must
+    // win — grabbing the far one anchors the resize at the wrong corner and
+    // the box ends up moving the other way.
+    draw(rig.window, {{100, 250}, {150, 250}, {200, 250}, {250, 250}, {300, 250}});
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(150, 250));
+    const QRectF before = rig.page->selectionRect();
+
+    const QPointF press(before.right(), before.top() + 8.9); // nearer to BR
+    drag(rig.window, press, press + QPointF(40, 40));
+    const QRectF after = rig.page->selectionRect();
+    QVERIFY(after.topLeft().y() > before.topLeft().y());
+}
+
+void PageTest::pressInsideTheBoxMovesTheSelection()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 200}, {150, 200}, {200, 200}, {250, 200}, {300, 200}});
+    draw(rig.window, {{100, 300}, {150, 300}, {200, 300}, {250, 300}, {300, 300}});
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    drag(rig.window, QPointF(50, 150), QPointF(350, 350));
+    QCOMPARE(rig.page->selection().size(), 2);
+
+    // Press between the strokes, inside the box, off any ink: the whole
+    // selection moves, like Figma and Excalidraw. Handles and Shift+click
+    // keep their own behaviour (tested above).
+    drag(rig.window, QPointF(200, 250), QPointF(240, 280));
+    QCOMPARE(rig.page->selection().size(), 2);
+    for (PageItem *item : rig.page->selection())
+        QCOMPARE(item->position(), QPointF(40, 30));
+}
+
+void PageTest::recolourWorksWhenTheInkAlreadyMatches()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    QTest::keyClick(&rig.window, Qt::Key_2); // red ink
+    draw(rig.window, {{100, 200}, {150, 200}, {200, 200}, {250, 200}, {300, 200}});
+    QTest::keyClick(&rig.window, Qt::Key_1); // black ink again, nothing selected
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(150, 200)); // the red stroke
+    QCOMPARE(pixel(rig.window, QPointF(150, 200)), palette::red);
+
+    QTest::keyClick(&rig.window, Qt::Key_1); // the ink already matches
+    QCOMPARE(pixel(rig.window, QPointF(150, 200)), palette::ink);
+
+    // A second press changes nothing, so it must not mint an undo step:
+    // the next undo hits the recolour, not a no-op.
+    QTest::keyClick(&rig.window, Qt::Key_1);
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(pixel(rig.window, QPointF(150, 200)), palette::red);
+}
+
+void PageTest::escapeCancelsADragThenClearsTheSelection()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 250}, {150, 250}, {200, 250}, {250, 250}, {300, 250}});
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(150, 250));
+
+    // Esc while the move drag is held: the drag cancels (nothing commits),
+    // then the selection clears.
+    mouse(rig.window, QEvent::MouseButtonPress, QPointF(150, 250));
+    mouse(rig.window, QEvent::MouseMove, QPointF(180, 250));
+    QCOMPARE(rig.page->items().constFirst()->position(), QPointF(30, 0));
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.page->selection().size(), 0);
+    QCOMPARE(rig.page->items().constFirst()->position(), QPointF(0, 0));
+
+    // The release lands with no drag; undo reaches the draw, not a move.
+    mouse(rig.window, QEvent::MouseButtonRelease, QPointF(180, 250));
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 0);
+}
+
+void PageTest::undoOfDeleteRestoresTheStackingOrder()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    QTest::keyClick(&rig.window, Qt::Key_2); // red, drawn first: the bottom
+    draw(rig.window, {{100, 250}, {150, 250}, {200, 250}, {250, 250}, {300, 250}});
+    QTest::keyClick(&rig.window, Qt::Key_1); // black, drawn last: the top
+    draw(rig.window, {{200, 150}, {200, 200}, {200, 250}, {200, 300}, {200, 350}});
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    // Select in reverse stacking order, so the selection order differs from
+    // the stacking: click takes the topmost, Shift+click adds the bottom one.
+    click(rig.window, QPointF(200, 250));
+    click(rig.window, QPointF(120, 250), Qt::ShiftModifier);
+    QCOMPARE(rig.page->selection().size(), 2);
+    PageItem *bottom = rig.page->items().constFirst();
+    PageItem *top = rig.page->items().constLast();
+
+    QTest::keyClick(&rig.window, Qt::Key_Delete);
+    QCOMPARE(rig.page->items().size(), 0);
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 2);
+    QCOMPARE(rig.page->items().constFirst(), bottom);
+    QCOMPARE(rig.page->items().constLast(), top);
+}
+
+void PageTest::undoOfEraseRestoresTheStackingOrder()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    QTest::keyClick(&rig.window, Qt::Key_2); // red, drawn first: the bottom
+    draw(rig.window, {{100, 200}, {150, 200}, {200, 200}, {250, 200}, {300, 200}});
+    QTest::keyClick(&rig.window, Qt::Key_1); // black, crossing it at (200, 200)
+    draw(rig.window, {{150, 250}, {175, 225}, {200, 200}, {225, 175}, {250, 150}});
+    PageItem *top = rig.page->items().constLast();
+    QTest::keyClick(&rig.window, Qt::Key_E);
+
+    // The eraser circle stays clear of the diagonal: only the bottom line goes.
+    drag(rig.window, QPointF(110, 200), QPointF(140, 200));
+    QCOMPARE(rig.page->items().size(), 1);
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 2);
+    QCOMPARE(rig.page->items().constLast(), top);
+    QCOMPARE(pixel(rig.window, QPointF(200, 200)), palette::ink); // still on top
+}
+
+void PageTest::startingAMarqueeHidesTheOldBoxAtOnce()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 250}, {150, 250}, {200, 250}, {250, 250}, {300, 250}});
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(150, 250));
+    const QRectF box = rig.page->selectionRect();
+    QTest::qWait(120); // the box fades in for 80 ms before it is fully opaque
+    QCOMPARE(pixel(rig.window, box.topLeft()), palette::accent); // handle shown
+
+    // Pressing on empty page starts a marquee and clears the selection: the
+    // old box must vanish right away, not linger until the first move.
+    mouse(rig.window, QEvent::MouseButtonPress, QPointF(500, 400));
+    QCOMPARE(pixel(rig.window, box.topLeft()), palette::page);
+    mouse(rig.window, QEvent::MouseButtonRelease, QPointF(500, 400));
+    QCOMPARE(rig.page->selection().size(), 0);
+}
+
+void PageTest::zoomIsBlockedMidDrag()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 250}, {150, 250}, {200, 250}, {250, 250}, {300, 250}});
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(150, 250));
+
+    // Ctrl+wheel (also Super+scroll) and pinch would shift the world under
+    // a held drag; they must not zoom until the drag is done.
+    mouse(rig.window, QEvent::MouseButtonPress, QPointF(150, 250));
+    mouse(rig.window, QEvent::MouseMove, QPointF(180, 250));
+    wheel(rig.window, QPointF(320, 240), QPoint(0, 120), Qt::ControlModifier);
+    QCOMPARE(rig.page->zoom(), 1.0);
+    pinch(rig.window, QPointF(320, 240), 0.05);
+    QCOMPARE(rig.page->zoom(), 1.0);
+    mouse(rig.window, QEvent::MouseButtonRelease, QPointF(180, 250));
+    QCOMPARE(rig.page->items().constFirst()->position(), QPointF(30, 0));
 }
 
 QTEST_MAIN(PageTest)
