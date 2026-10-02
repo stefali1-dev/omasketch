@@ -103,7 +103,10 @@ int main(int argc, char *argv[])
                                                        Q_ARG(QVariant, message));
                      });
     QObject::connect(window, &QQuickWindow::closing, &files, &Files::appClosing);
-    if (argc > 1) {
+    // `omasketch file.png` opens it once the first frame is up. A first
+    // argument starting with - is a flag (Qt's own --platform, --help…),
+    // not a file.
+    if (argc > 1 && !QGuiApplication::arguments().value(1).startsWith('-')) {
         const QString path = QFileInfo(QGuiApplication::arguments().value(1))
                                  .absoluteFilePath();
         QObject::connect(window, &QQuickWindow::frameSwapped, &files,

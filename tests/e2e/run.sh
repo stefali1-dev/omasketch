@@ -55,6 +55,8 @@ except Exception as e:
     print(zeros); sys.exit(0)
 x0, x1 = (w * 2 // 10, w * 8 // 10) if mode == "centre" else (0, w)
 y0, y1 = (h * 2 // 10, h * 8 // 10) if mode == "centre" else (0, h)
+if mode == "toast":  # the toast's strip at the bottom centre of the window
+    x0, x1, y0, y1 = w // 4, 3 * w // 4, h * 92 // 100, h * 99 // 100
 black = red = ink = 0
 row = w * 3
 for y in range(y0, y1, 3):
@@ -182,6 +184,20 @@ check "reopen: no QML warnings on stderr" \
   bash -c "test -f '$OMA_SHOTS/app2.log' && ! grep -qE 'qrc:|\.qml:' '$OMA_SHOTS/app2.log'"
 check "a clean close wrote no autosave duplicate" \
   test "$(ls "$DRAWINGS"/*.png | wc -l)" = 2
+
+# --- session 3: a leading - argument is a flag, not a file --------------------
+# --help used to open a window and toast "no image at …/--help". The window
+# fills the hidden screen, so the toast's strip must stay blank.
+printf 'wait 300\nshot flag.png\nclose\n' > "$T/flag.steps"
+OMA_APP_HOME=$T/home OMA_APP_LOG=app3.log \
+  "$D/drive.sh" "$BIN" "$T/flag.steps" --help
+code3=$?
+check "the flag-only launch exited cleanly" test "$code3" = 0
+check "flag-only launch: no QML warnings on stderr" \
+  bash -c "test -f '$OMA_SHOTS/app3.log' && ! grep -qE 'qrc:|\.qml:' '$OMA_SHOTS/app3.log'"
+read -r _ _ _ _ FT < <(stats "$OMA_SHOTS/flag.png" toast)
+echo "     flag.png toast strip: non-white=$FT"
+check "a - argument never toasts a missing file" test "$FT" = 0
 
 echo "e2e shots and the app's saved files: $T"
 if [ "$fails" -eq 0 ]; then
