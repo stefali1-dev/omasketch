@@ -11,6 +11,7 @@
 #include <QtMath>
 
 #include "arrow.h"
+#include "imageitem.h"
 #include "palette.h"
 #include "page.h"
 #include "pageitem.h"
@@ -184,6 +185,8 @@ private slots:
     void dragMovesTheWholeSelectionExactly();
     void resizeKeepsTheOppositeCornerAndProportions();
     void shiftResizeIsFree();
+    void shiftResizePastTheAnchorNeverFlips();
+    void shiftResizePastTheAnchorKeepsImagesPositive();
     void resizeHandleShowsTheDiagonalCursor();
     void resizeKeepsTheLineWidth();
     void deleteRemovesAndUndoes();
@@ -744,6 +747,60 @@ void PageTest::shiftResizeIsFree()
     const QRectF after = rig.page->selectionRect();
     QVERIFY(after.width() > before.width());
     QCOMPARE(after.height(), before.height()); // y did not move: free, not proportional
+}
+
+// A Shift (free) resize dragged past the anchor used to flip the items:
+// text's sqrt of a negative product folded its font to 1 px, where not even
+// undo brought it back, and images baked a negative width that renders
+// nothing. Resizing never mirrors.
+void PageTest::shiftResizePastTheAnchorNeverFlips()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    TextBox *box = placeBox(rig, QPointF(200, 200), QStringLiteral("abcd"));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(210, 210));
+    const qreal sizeBefore = box->fontSize();
+    const QRectF rect = rig.page->selectionRect();
+
+    // The bottom-right handle dragged past the left edge: sx < 0, sy == 1.
+    mouse(rig.window, QEvent::MouseButtonPress, rect.bottomRight());
+    mouse(rig.window, QEvent::MouseMove, QPointF(rect.left() - 30, rect.bottom()),
+          Qt::ShiftModifier);
+    mouse(rig.window, QEvent::MouseButtonRelease,
+          QPointF(rect.left() - 30, rect.bottom()), Qt::ShiftModifier);
+
+    QVERIFY(box->fontSize() > 1.0); // no NaN folded to the 1 px floor
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QVERIFY(qAbs(box->fontSize() - sizeBefore) < 0.01); // a big shrink undoes
+}
+
+void PageTest::shiftResizePastTheAnchorKeepsImagesPositive()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QImage source(64, 48, QImage::Format_ARGB32);
+    source.fill(Qt::red);
+    auto *image = new ImageItem;
+    image->setImage(source, QSizeF(64, 48));
+    image->setPosition(QPointF(200, 200));
+    rig.page->addItem(image);
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(230, 220));
+    const QRectF rect = rig.page->selectionRect();
+
+    mouse(rig.window, QEvent::MouseButtonPress, rect.bottomRight());
+    mouse(rig.window, QEvent::MouseMove, QPointF(rect.left() - 30, rect.bottom()),
+          Qt::ShiftModifier);
+    mouse(rig.window, QEvent::MouseButtonRelease,
+          QPointF(rect.left() - 30, rect.bottom()), Qt::ShiftModifier);
+    QVERIFY(image->width() > 0); // a flip was never part of the deal
+
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(image->size(), QSizeF(64, 48));
+    QCOMPARE(image->position(), QPointF(200, 200));
 }
 
 void PageTest::resizeHandleShowsTheDiagonalCursor()

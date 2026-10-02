@@ -34,8 +34,10 @@ constexpr qreal kMinDrag = 4;      // screen pixels a drag must cover to draw
 
 qreal clampScale(qreal s)
 {
-    // Away from zero: a full collapse could not be undone by rescaling.
-    return s < -0.01 ? s : s > 0.01 ? s : (s < 0 ? -0.01 : 0.01);
+    // Resizing never mirrors: a handle dragged past the anchor stops at a
+    // small positive scale, the kinds that cannot flip included. Away from
+    // zero, so a full collapse could still be undone by rescaling.
+    return s > 0.01 ? s : 0.01;
 }
 
 } // namespace

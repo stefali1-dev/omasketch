@@ -83,7 +83,9 @@ TextBox::TextBox(QQuickItem *parent)
 void TextBox::applyFont()
 {
     m_font = QFont(QStringLiteral("JetBrainsMono Nerd Font"));
-    m_font.setPixelSize(qRound(m_fontSize));
+    // Below a pixel the text renders at 1 px, but m_fontSize itself stays
+    // true, so resizing back out — or undo — restores the real size.
+    m_font.setPixelSize(qMax(1, qRound(m_fontSize)));
     m_document->setDefaultFont(m_font);
     if (m_editor)
         m_editor->setProperty("font", m_font);
@@ -217,7 +219,9 @@ void TextBox::scaleGeometry(qreal sx, qreal sy)
 {
     // Text scales as a unit: the font grows, the box never stretches. A
     // free (Shift) resize lands on the geometric mean of the two axes.
-    m_fontSize = qMax<qreal>(1.0, m_fontSize * std::sqrt(sx * sy));
+    // Multiplicative and unclamped, so undo restores exactly; the 1 px
+    // floor lives in applyFont's rendering, not here.
+    m_fontSize *= std::sqrt(sx * sy);
     applyFont();
     update();
 }
