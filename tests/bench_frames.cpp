@@ -10,6 +10,8 @@
 #include <QGuiApplication>
 #include <QQuickWindow>
 #include <QSet>
+#include <QtQml/QQmlContext>
+#include <QtQml/QQmlEngine>
 #include <QSurfaceFormat>
 #include <QTimer>
 #include <QWheelEvent>
@@ -25,6 +27,7 @@
 #include "palette.h"
 #include "page.h"
 #include "stroke.h"
+#include "textbox.h"
 
 namespace {
 
@@ -40,6 +43,8 @@ constexpr int kSelectFrames = 6;      // selection and pan setup, not measured
 constexpr int kMoveFrames = 150;
 constexpr int kResizeSetupFrames = 4; // pan setup, not measured
 constexpr int kResizeFrames = 150;
+constexpr int kTypeBoxes = 200;       // text boxes prefilled with the page
+constexpr int kTypeFrames = 60;       // keystrokes, one per frame
 constexpr qreal kBudgetMs = 1000.0 / 120;
 constexpr qreal kMissedMs = 12; // a swapped frame is late once it misses a vsync
 
@@ -71,6 +76,7 @@ public:
             if (i == 0) {
                 m_page->zoomHome();
                 prefillHeavy();
+                prefillTextBoxes();
             }
         };
         const auto select = [this](int i) { selectSetup(i); };
@@ -80,6 +86,11 @@ public:
                 panToPoint(m_page->selectionRect().bottomRight());
         };
         const auto resize = [this](int i) { resizeTick(i); };
+        const auto typePrep = [this](int i) {
+            if (i == 0)
+                typeSetup();
+        };
+        const auto type = [this](int i) { typeTick(i); };
 
         m_phases = {
             {.name = "idle",         .frames = kIdleFrames,         .tick = idle},
@@ -95,6 +106,8 @@ public:
             {.name = "move-heavy",   .frames = kMoveFrames,         .tick = move},
             {.name = "resize-prep",  .frames = kResizeSetupFrames,  .tick = resizeSetup},
             {.name = "resize-heavy", .frames = kResizeFrames,       .tick = resize},
+            {.name = "type-prep",    .frames = kSelectFrames,       .tick = typePrep},
+            {.name = "type",         .frames = kTypeFrames,         .tick = type},
         };
     }
 
@@ -246,6 +259,26 @@ private:
             QTest::mouseRelease(m_window, Qt::LeftButton, {}, p);
     }
 
+    // Opens the first text box of the prefill for editing at the window
+    // centre; the keys then land in its editor, guarded like real typing.
+    void typeSetup()
+    {
+        m_page->setTool(Tools::Text);
+        panToPoint(m_typeBoxesArea.center());
+        QTest::mouseMove(m_window, QPoint(m_window->width() / 2, m_window->height() / 2));
+        QTest::mousePress(m_window, Qt::LeftButton, {},
+                          QPoint(m_window->width() / 2, m_window->height() / 2));
+        QTest::mouseRelease(m_window, Qt::LeftButton, {},
+                            QPoint(m_window->width() / 2, m_window->height() / 2));
+    }
+
+    void typeTick(int i)
+    {
+        QTest::keyClick(m_window, 'a' + i % 26);
+        if (i == kTypeFrames - 1)
+            m_page->commitEditing();
+    }
+
     void prefillHeavy()
     {
         QElapsedTimer build;
@@ -274,11 +307,30 @@ private:
                      kHeavyStrokes, kHeavyPoints, build.elapsed());
     }
 
+    // 200 committed text boxes in a grid near the world origin; the type
+    // phase edits the first one with the whole page rendering behind it.
+    void prefillTextBoxes()
+    {
+        QElapsedTimer build;
+        build.start();
+        for (int i = 0; i < kTypeBoxes; ++i) {
+            auto *box = new TextBox;
+            box->setColor(palette::ink);
+            box->setPosition(QPointF((i % 20) * 90.0, (i / 20) * 60.0));
+            box->setText("test 12");
+            m_page->addItem(box);
+        }
+        m_typeBoxesArea = QRectF(0, 0, 20 * 90.0, 10 * 60.0);
+        std::fprintf(stderr, "bench: prefilled %d text boxes in %lld ms\n",
+                     kTypeBoxes, build.elapsed());
+    }
+
     QQuickWindow *m_window;
     Page *m_page;
     QList<Phase> m_phases;
     QList<Stroke *> m_sample;
     QList<QPointF> m_sampleMids; // world points on the sample strokes' ink
+    QRectF m_typeBoxesArea;      // where the prefilled text boxes live
     QPointF m_pressWorld;        // where the move drag grabs
     QElapsedTimer m_clock;
     qreal m_last = -1;
@@ -297,10 +349,14 @@ int main(int argc, char *argv[])
     QSurfaceFormat::setDefaultFormat(format);
 
     QGuiApplication app(argc, argv);
+    // The text boxes' editors need a QML engine to be found (see textbox.cpp);
+    // declared first so it outlives the page it is attached to.
+    QQmlEngine qmlEngine;
     QQuickWindow window;
     window.resize(1600, 900);
     window.setColor(palette::page);
     auto *page = new Page(window.contentItem());
+    QQmlEngine::setContextForObject(page, new QQmlContext(qmlEngine.rootContext()));
     page->setSize(QSizeF(window.width(), window.height()));
     QObject::connect(&window, &QQuickWindow::widthChanged, page,
                      [page, &window] { page->setWidth(window.width()); });
