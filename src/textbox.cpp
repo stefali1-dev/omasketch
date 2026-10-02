@@ -4,10 +4,11 @@
 #include <QGuiApplication>
 #include <QKeyEvent>
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickWindow>
-#include <QtQuick/private/qquicktextedit_p.h>
 #include <QtQuick/qsgtextnode.h>
+#include <QVariant>
 #include <cmath>
 
 #include "palette.h"
@@ -16,7 +17,8 @@ namespace {
 
 // The QML engine and context of the page this box lives on: the box is
 // created from C++ with only a visual parent, so both must be found up that
-// chain. The editor needs the context to instantiate the caret delegate.
+// chain. The editor needs the context to be created, and the caret delegate
+// to be instantiated inside it.
 QQmlEngine *engineFor(const QQuickItem *item)
 {
     for (const QQuickItem *o = item; o; o = o->parentItem()) {
@@ -33,6 +35,23 @@ QQmlContext *contextFor(const QQuickItem *item)
             return context;
     }
     return nullptr;
+}
+
+// The editor: Qt's own TextEdit (caret, selection, input methods) with the
+// knobs that never change. The C++ TextEdit class is private, so the editor
+// is created through the public QML API and text, colour and font go over
+// properties; the tests pin all three down.
+QByteArray editorData()
+{
+    return QStringLiteral(
+                "import QtQuick\n"
+                "TextEdit {\n"
+                "    readOnly: false\n"
+                "    selectByMouse: true\n"
+                "    wrapMode: TextEdit.NoWrap\n"
+                "    renderType: TextEdit.QtRendering\n"
+                "}\n")
+        .toUtf8();
 }
 
 // The caret is a thin accent bar, monkeytype-like. It needs the QML engine
@@ -67,7 +86,14 @@ void TextBox::applyFont()
     m_font.setPixelSize(qRound(m_fontSize));
     m_document->setDefaultFont(m_font);
     if (m_editor)
-        m_editor->setFont(m_font);
+        m_editor->setProperty("font", m_font);
+}
+
+QFont TextBox::font() const
+{
+    if (m_editing && m_editor)
+        return m_editor->property("font").value<QFont>();
+    return m_font;
 }
 
 void TextBox::setText(const QString &text)
@@ -78,7 +104,7 @@ void TextBox::setText(const QString &text)
 
 int TextBox::cursorPosition() const
 {
-    return m_editing && m_editor ? m_editor->cursorPosition() : -1;
+    return m_editing && m_editor ? m_editor->property("cursorPosition").toInt() : -1;
 }
 
 void TextBox::setColor(const QColor &color)
@@ -87,33 +113,39 @@ void TextBox::setColor(const QColor &color)
         return;
     m_color = color;
     if (m_editor)
-        m_editor->setColor(color);
+        m_editor->setProperty("color", color);
     update();
 }
 
-QQuickTextEdit *TextBox::ensureEditor()
+QQuickItem *TextBox::ensureEditor()
 {
     if (m_editor) {
         m_editor->setPosition(QPointF(0, 0));
         return m_editor;
     }
-    m_editor = new QQuickTextEdit(this);
-    m_editor->setPosition(QPointF(0, 0));
-    m_editor->setReadOnly(false);
-    m_editor->setSelectByMouse(true);
-    m_editor->setWrapMode(QQuickTextEdit::NoWrap);
-    // Same distance-field pipeline as the idle text node, so entering and
-    // leaving an edit does not change how the glyphs look.
-    m_editor->setRenderType(QQuickTextEdit::QtRendering);
-    if (QQmlEngine *engine = engineFor(this)) {
-        // Without a context the editor cannot instantiate the delegate
-        // component: it falls back to its own, unset, context.
-        if (QQmlContext *context = contextFor(this))
-            QQmlEngine::setContextForObject(m_editor, context);
-        m_cursorDelegate = new QQmlComponent(engine, this);
-        m_cursorDelegate->setData(cursorDelegateData(), QUrl("textbox-caret"));
-        m_editor->setCursorDelegate(m_cursorDelegate);
+    QQmlEngine *engine = engineFor(this);
+    if (!engine) {
+        qWarning("omasketch: text box without a QML engine cannot edit");
+        return nullptr;
     }
+    QQmlComponent component(engine);
+    component.setData(editorData(), QUrl("textbox-editor"));
+    QQmlContext *context = contextFor(this);
+    m_editor = qobject_cast<QQuickItem *>(component.create(context));
+    if (!m_editor) {
+        qWarning("omasketch: text editor failed to create: %s",
+                 qPrintable(component.errorString()));
+        return nullptr;
+    }
+    m_editor->setParent(this);     // ownership
+    m_editor->setParentItem(this); // into the scene; focus needs a window
+    m_editor->setPosition(QPointF(0, 0));
+    // The accent caret, monkeytype-like; the component must outlive the
+    // editor because the delegate item is created when the caret first shows.
+    m_cursorDelegate = new QQmlComponent(engine, this);
+    m_cursorDelegate->setData(cursorDelegateData(), QUrl("textbox-caret"));
+    m_editor->setProperty("cursorDelegate",
+                          QVariant::fromValue(m_cursorDelegate));
     return m_editor;
 }
 
@@ -121,9 +153,12 @@ void TextBox::startEdit(const QPointF &localPress)
 {
     if (m_editing)
         return;
-    QQuickTextEdit *editor = ensureEditor();
-    editor->setText(text());
-    editor->setColor(m_color);
+    QQuickItem *editor = ensureEditor();
+    if (!editor)
+        return;
+    editor->setProperty("text", text());
+    editor->setProperty("color", m_color);
+    editor->setProperty("font", m_font);
     editor->setVisible(true);
     editor->forceActiveFocus();
 
@@ -148,7 +183,7 @@ void TextBox::stopEdit()
 {
     if (!m_editing)
         return;
-    setText(m_editor->text());
+    setText(m_editor->property("text").toString());
     m_editor->setFocus(false);
     m_editor->setVisible(false);
     m_editing = false;

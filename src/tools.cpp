@@ -9,6 +9,7 @@
 
 #include "page.h"
 #include "palette.h"
+#include "textbox.h"
 
 namespace {
 
@@ -90,9 +91,29 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
         // While the path bar or a text box has focus, the keys belong to it:
         // not the tool keys, not the draw shortcuts, not Space — and the
         // path-bar shortcuts must not re-prefill over what is being typed.
+        // A text box being edited makes one exception: the path bar and
+        // fresh page commit the edit and then do their thing. Ctrl+Z/A/C/V
+        // stay in the box, where they are Qt's own text editing.
         auto *focus = m_window ? m_window->activeFocusItem() : nullptr;
-        if (focus && focus->flags().testFlag(QQuickItem::ItemAcceptsInputMethod))
-            return QObject::eventFilter(watched, event);
+        if (focus && focus->flags().testFlag(QQuickItem::ItemAcceptsInputMethod)) {
+            bool editing = false;
+            for (const QQuickItem *o = focus; o; o = o->parentItem()) {
+                if (qobject_cast<const TextBox *>(o)) {
+                    editing = true;
+                    break;
+                }
+            }
+            if (!editing)
+                return QObject::eventFilter(watched, event);
+            const bool commitAndAct = !key->isAutoRepeat()
+                && (key->modifiers() & (Qt::ControlModifier | Qt::MetaModifier))
+                && (key->key() == Qt::Key_S || key->key() == Qt::Key_O
+                    || key->key() == Qt::Key_N);
+            if (!commitAndAct)
+                return QObject::eventFilter(watched, event);
+            if (m_page)
+                m_page->commitEditing();
+        }
         if (plain(key)) {
             // Holding a plain key must not retrigger the tool or Space.
             if (key->isAutoRepeat())

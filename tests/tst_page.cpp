@@ -1,3 +1,5 @@
+#include <QtGui/QFontInfo>
+#include <QtGui/QFontMetricsF>
 #include <QtGui/QMouseEvent>
 #include <QtGui/QNativeGestureEvent>
 #include <QtGui/QPointingDevice>
@@ -208,6 +210,8 @@ private slots:
     void doubleClickEditsABox();
     void clickAwayCommitsAndPlacesANewBox();
     void typingIsFastWith200Boxes();
+    void textBoxTypesInJetBrainsMono();
+    void saveAndFreshPageCommitTheEdit();
 };
 
 void PageTest::drawShowsStrokeAndUndoRedoRemovesRestoresIt()
@@ -1327,6 +1331,64 @@ void PageTest::typingIsFastWith200Boxes()
     QVERIFY2(ms < 1000,
              qPrintable(QStringLiteral("typing 11 chars beside 200 boxes took %1 ms")
                             .arg(ms)));
+}
+
+void PageTest::textBoxTypesInJetBrainsMono()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(200, 200));
+    type(rig.window, "mmiim");
+
+    // While editing the font lives in the editor; it must be the mono the
+    // design calls for, whose every glyph shares one advance width.
+    const QFont editing = rig.page->editing()->font();
+    QCOMPARE(QFontInfo(editing).family(), QStringLiteral("JetBrainsMono Nerd Font"));
+    const QFontMetricsF whileEditing(editing);
+    QCOMPARE(whileEditing.horizontalAdvance(u'i'),
+             whileEditing.horizontalAdvance(u'm'));
+    QVERIFY(qAbs(whileEditing.horizontalAdvance(u'i') - 11.4) < 0.1); // 0.6 em
+
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    auto *box = static_cast<TextBox *>(rig.page->items().constFirst());
+    QCOMPARE(QFontInfo(box->font()).family(), QStringLiteral("JetBrainsMono Nerd Font"));
+    const QFontMetricsF committed(box->font());
+    QCOMPARE(committed.horizontalAdvance(u'i'), committed.horizontalAdvance(u'm'));
+    QCOMPARE(box->font().pixelSize(), 19);
+}
+
+void PageTest::saveAndFreshPageCommitTheEdit()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QSignalSpy saves(&rig.tools, &Tools::pathBarRequested);
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(200, 200));
+    type(rig.window, "ab");
+
+    // Ctrl+Shift+S works while typing: the edit commits first, then the bar.
+    QTest::keyClick(&rig.window, Qt::Key_S, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(saves.size(), 1);
+    QCOMPARE(saves.constFirst().constFirst().toString(), QStringLiteral("save"));
+    QCOMPARE(rig.page->items().size(), 1);
+    QVERIFY(!rig.page->editing());
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("ab"));
+
+    // Edit again, then Ctrl+N: commit, then a fresh page — undoable.
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(225, 212)); // past the end: caret at "ab|"
+    type(rig.window, "c");
+    QTest::keyClick(&rig.window, Qt::Key_N, Qt::ControlModifier);
+    QVERIFY(!rig.page->editing());
+    QCOMPARE(rig.page->items().size(), 0);
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("abc"));
 }
 
 QTEST_MAIN(PageTest)

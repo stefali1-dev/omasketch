@@ -5,10 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra)
 
-# The text box edits through QQuickTextEdit, which has no public C++ API —
-# a known, pinned choice of the system Qt's private headers.
-set(QT_NO_PRIVATE_MODULE_WARNING ON)
-find_package(Qt6 6.8 REQUIRED COMPONENTS Gui Qml Quick QuickPrivate Test)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Gui Qml Quick Test)
 qt_standard_project_setup()
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
@@ -40,7 +37,7 @@ qt_add_qml_module(omasketch
         src/Toast.qml
 )
 
-target_link_libraries(omasketch PRIVATE Qt6::Quick Qt6::QuickPrivate Qt6::Gui)
+target_link_libraries(omasketch PRIVATE Qt6::Quick Qt6::Gui)
 target_include_directories(omasketch PRIVATE src)
 
 # The tests need a page too; the QML module itself only matters for the app.
@@ -64,14 +61,14 @@ qt_add_executable(tst_skeleton
     ${OMASKETCH_PAGE_SOURCES}
 )
 target_include_directories(tst_skeleton PRIVATE src)
-target_link_libraries(tst_skeleton PRIVATE Qt6::Quick Qt6::QuickPrivate Qt6::Test)
+target_link_libraries(tst_skeleton PRIVATE Qt6::Quick Qt6::Test)
 
 qt_add_executable(tst_page
     tests/tst_page.cpp
     ${OMASKETCH_PAGE_SOURCES}
 )
 target_include_directories(tst_page PRIVATE src)
-target_link_libraries(tst_page PRIVATE Qt6::Quick Qt6::QuickPrivate Qt6::Gui Qt6::Test)
+target_link_libraries(tst_page PRIVATE Qt6::Quick Qt6::Gui Qt6::Test)
 
 # Loads the real Main.qml module, so it needs the same QML module as the app.
 qt_add_executable(tst_app
@@ -79,7 +76,7 @@ qt_add_executable(tst_app
     ${OMASKETCH_PAGE_SOURCES}
 )
 target_include_directories(tst_app PRIVATE src)
-target_link_libraries(tst_app PRIVATE Qt6::Quick Qt6::QuickPrivate Qt6::Gui Qt6::Test)
+target_link_libraries(tst_app PRIVATE Qt6::Quick Qt6::Gui Qt6::Test)
 qt_add_qml_module(tst_app
     URI Omasketch
     VERSION 1.0
@@ -96,7 +93,7 @@ qt_add_executable(bench_frames
     ${OMASKETCH_PAGE_SOURCES}
 )
 target_include_directories(bench_frames PRIVATE src)
-target_link_libraries(bench_frames PRIVATE Qt6::Quick Qt6::QuickPrivate Qt6::Gui Qt6::Test)
+target_link_libraries(bench_frames PRIVATE Qt6::Quick Qt6::Gui Qt6::Test)
 
 qt_add_executable(tst_pathbar
     tests/tst_pathbar.cpp
@@ -105,7 +102,7 @@ qt_add_executable(tst_pathbar
     src/pathcompleter.h
 )
 target_include_directories(tst_pathbar PRIVATE src)
-target_link_libraries(tst_pathbar PRIVATE Qt6::Quick Qt6::QuickPrivate Qt6::Test)
+target_link_libraries(tst_pathbar PRIVATE Qt6::Quick Qt6::Test)
 target_compile_definitions(tst_pathbar PRIVATE
     SRC_DIR="${CMAKE_CURRENT_LIST_DIR}/src")
 target_link_libraries(tst_pathbar PRIVATE Qt6::Quick Qt6::Test)

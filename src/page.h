@@ -65,6 +65,10 @@ public:
     void selectAll();
     void clearSelection();
     void deleteSelection();
+    // Stops the box being edited and makes the edit an undo step; nothing
+    // happens when no box is editing. The shortcuts that still work while
+    // typing (save/open path bar, fresh page) call this first.
+    void commitEditing();
 
     // The topmost item within a few screen pixels of the world point.
     PageItem *itemAt(const QPointF &worldPos) const;
@@ -106,9 +110,6 @@ private:
     void pressText(QMouseEvent *event);
     // Opens the box for editing; localPress places the caret at the click.
     void startEditing(TextBox *box, bool isNew, const QPointF &localPress);
-    // Stops the edit and makes it an undo step: a new box with text is added
-    // in one step, an edit mints a SetText, an empty new box just goes.
-    void commitEditing();
     void startMove();
     void startResize(int corner);
     void resizeTo(const QPointF &worldPos, bool free);
