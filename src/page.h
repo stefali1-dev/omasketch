@@ -13,6 +13,7 @@ class QVariantAnimation;
 class PageItem;
 class SelectionOverlay;
 class Stroke;
+class TextBox;
 
 // The drawing surface: fills the window, owns the "world" item that holds
 // everything drawn, and turns pointer input for the current tool into strokes,
@@ -48,6 +49,8 @@ public:
 
     bool isPanning() const { return m_panning; }
     bool isDrawing() const { return m_stroke != nullptr; }
+    // The box being edited, or null. Not committed, so not in items() yet.
+    TextBox *editing() const { return m_editing; }
 
     // Introspection for the tests and the frame-time bench.
     qreal zoom() const { return m_zoom; }
@@ -82,6 +85,9 @@ signals:
 protected:
     void hoverMoveEvent(QHoverEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    // Qt Quick delivers the second click of a double-click here, not to
+    // mousePressEvent; the select tool opens text boxes with it.
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
@@ -97,6 +103,12 @@ private:
     void updateHoverCursor(const QPointF &pagePos);
 
     void pressSelect(QMouseEvent *event);
+    void pressText(QMouseEvent *event);
+    // Opens the box for editing; localPress places the caret at the click.
+    void startEditing(TextBox *box, bool isNew, const QPointF &localPress);
+    // Stops the edit and makes it an undo step: a new box with text is added
+    // in one step, an edit mints a SetText, an empty new box just goes.
+    void commitEditing();
     void startMove();
     void startResize(int corner);
     void resizeTo(const QPointF &worldPos, bool free);
@@ -123,6 +135,9 @@ private:
     Tools::Tool m_tool = Tools::Select;
     QColor m_ink = Qt::black;
     qreal m_strokeWidth = 2.75;
+    TextBox *m_editing = nullptr; // box being edited; not committed yet
+    bool m_editingNew = false;    // it would be created by this edit
+    QString m_editingBefore;      // its text before the edit, for the undo
 
     // One pointer drag at a time; the payload members belong to it.
     Drag m_drag = Drag::None;

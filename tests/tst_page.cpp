@@ -2,6 +2,8 @@
 #include <QtGui/QNativeGestureEvent>
 #include <QtGui/QPointingDevice>
 #include <QtGui/QWheelEvent>
+#include <QtQml/QQmlContext>
+#include <QtQml/QQmlEngine>
 #include <QtQuick/QQuickWindow>
 #include <QtTest>
 
@@ -9,15 +11,19 @@
 #include "page.h"
 #include "pageitem.h"
 #include "stroke.h"
+#include "textbox.h"
 #include "tools.h"
 
 namespace {
 
-// Window + page + tools, wired the way main.cpp wires them.
+// Window + page + tools, wired the way main.cpp wires them. The QML engine
+// gives the text boxes a context: the editor's accent caret delegate is a
+// QQmlComponent, which needs an engine even in a hand-built window.
 struct Rig
 {
     QQuickWindow window;
     Tools tools;
+    QQmlEngine engine;
     Page *page = nullptr;
 
     explicit Rig(QSizeF size = QSizeF(640, 480))
@@ -25,6 +31,8 @@ struct Rig
         window.resize(size.toSize());
         window.setColor(palette::page);
         page = new Page(window.contentItem());
+        QQmlEngine::setContextForObject(
+            page, new QQmlContext(engine.rootContext()));
         page->setSize(size);
         QObject::connect(&window, &QQuickWindow::widthChanged, page,
                          [this] { page->setWidth(window.width()); });
@@ -112,6 +120,37 @@ int inkRows(QQuickWindow &window, int x)
     return rows;
 }
 
+// Whether anything non-page is drawn in the rect: text glyphs or a caret,
+// either of which survives antialiasing with at least one off-page pixel.
+bool anythingDrawn(QQuickWindow &window, const QRectF &rect)
+{
+    const QImage image = window.grabWindow();
+    const qreal dpr = image.devicePixelRatio();
+    for (int y = qRound(rect.top() * dpr); y < qRound(rect.bottom() * dpr); ++y) {
+        for (int x = qRound(rect.left() * dpr); x < qRound(rect.right() * dpr); ++x) {
+            if (image.pixelColor(x, y) != palette::page)
+                return true;
+        }
+    }
+    return false;
+}
+
+void type(QQuickWindow &window, const QString &text)
+{
+    for (const QChar c : text)
+        QTest::keyClick(&window, c.toLatin1());
+}
+
+// Places a committed box with the given text through the real tool flow.
+TextBox *placeBox(Rig &rig, const QPointF &pos, const QString &text)
+{
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, pos);
+    type(rig.window, text);
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    return static_cast<TextBox *>(rig.page->items().constLast());
+}
+
 } // namespace
 
 class PageTest : public QObject
@@ -156,6 +195,19 @@ private slots:
     void undoOfEraseRestoresTheStackingOrder();
     void startingAMarqueeHidesTheOldBoxAtOnce();
     void zoomIsBlockedMidDrag();
+    void textToolPlacesAndTypesAndStays();
+    void toolKeysGoIntoTheText();
+    void escapeTwiceReturnsToSelect();
+    void emptyBoxRemovedWithoutAnUndoStep();
+    void createUndoRedo();
+    void clickOnABoxEditsAtTheClick();
+    void editUndoRedo();
+    void ctrlZUndoesInsideTheBoxWhileEditing();
+    void enterAddsALine();
+    void boxSelectsMovesResizesDeletes();
+    void doubleClickEditsABox();
+    void clickAwayCommitsAndPlacesANewBox();
+    void typingIsFastWith200Boxes();
 };
 
 void PageTest::drawShowsStrokeAndUndoRedoRemovesRestoresIt()
@@ -985,6 +1037,296 @@ void PageTest::zoomIsBlockedMidDrag()
     QCOMPARE(rig.page->zoom(), 1.0);
     mouse(rig.window, QEvent::MouseButtonRelease, QPointF(180, 250));
     QCOMPARE(rig.page->items().constFirst()->position(), QPointF(30, 0));
+}
+
+void PageTest::textToolPlacesAndTypesAndStays()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    QCOMPARE(rig.tools.tool(), Tools::Text);
+    QCOMPARE(rig.window.cursor().shape(), Qt::IBeamCursor);
+
+    click(rig.window, QPointF(200, 200));
+    QVERIFY(rig.page->editing());
+    QCOMPARE(rig.page->items().size(), 0); // committed only when the edit ends
+    type(rig.window, "int n = 5");
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+
+    QCOMPARE(rig.tools.tool(), Tools::Text); // the tool stays text
+    QCOMPARE(rig.page->items().size(), 1);
+    auto *box = qobject_cast<TextBox *>(rig.page->items().constFirst());
+    QVERIFY(box);
+    QCOMPARE(box->text(), QStringLiteral("int n = 5"));
+    QVERIFY(!box->isEditing());
+    QVERIFY(anythingDrawn(rig.window, QRectF(200, 200, 110, 30)));
+}
+
+void PageTest::toolKeysGoIntoTheText()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(200, 200));
+
+    // v/d/e/a and the digits are tool keys everywhere else; here they type.
+    type(rig.window, "vd1e2a");
+    QVERIFY(rig.page->editing());
+    QCOMPARE(rig.page->items().size(), 0);
+    QCOMPARE(rig.tools.tool(), Tools::Text);
+
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("vd1e2a"));
+}
+
+void PageTest::escapeTwiceReturnsToSelect()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(200, 200));
+    type(rig.window, "x");
+
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.page->items().size(), 1); // the box stays
+    QCOMPARE(rig.tools.tool(), Tools::Text);
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.tools.tool(), Tools::Select);
+
+    // The same two-Esc round for an empty box, which is not even committed.
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(400, 300));
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(rig.tools.tool(), Tools::Text);
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.tools.tool(), Tools::Select);
+}
+
+void PageTest::emptyBoxRemovedWithoutAnUndoStep()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 250}, {150, 250}, {200, 250}, {250, 250}, {300, 250}});
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(400, 300));
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+
+    QCOMPARE(rig.page->items().size(), 1); // only the stroke: no box was added
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 0); // the undo hits the draw itself
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(rig.page->items().size(), 1);
+}
+
+void PageTest::createUndoRedo()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    TextBox *box = placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 0); // the whole box, text included
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(rig.page->items().constFirst(), box);
+    QCOMPARE(box->text(), QStringLiteral("ab"));
+}
+
+void PageTest::clickOnABoxEditsAtTheClick()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    // Inside the first glyph: the caret must start after the "a".
+    click(rig.window, QPointF(208, 212));
+    QVERIFY(rig.page->editing());
+    QCOMPARE(rig.page->editing()->cursorPosition(), 1);
+    type(rig.window, "X");
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("aXb"));
+}
+
+void PageTest::editUndoRedo()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(208, 212));
+    type(rig.window, "X");
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("aXb"));
+
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 1); // the edit step, not the create
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("aXb"));
+    // Two more undos step back through the edit and then the create.
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 0);
+}
+
+void PageTest::ctrlZUndoesInsideTheBoxWhileEditing()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(208, 212));
+    type(rig.window, "X");
+
+    // While editing, Ctrl+Z belongs to the box (Qt's own text undo)...
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("ab"));
+    QCOMPARE(rig.page->items().size(), 1);
+    // ...and the page's stack was untouched: the next undo is the create.
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 0);
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(rig.page->items().size(), 1);
+}
+
+void PageTest::enterAddsALine()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(200, 200));
+    type(rig.window, "ab");
+    QTest::keyClick(&rig.window, Qt::Key_Return);
+    type(rig.window, "cd");
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+
+    auto *box = static_cast<TextBox *>(rig.page->items().constFirst());
+    QCOMPARE(box->text(), QStringLiteral("ab\ncd"));
+    QVERIFY(box->bounds().height() > 30); // two lines, not one
+}
+
+void PageTest::boxSelectsMovesResizesDeletes()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    TextBox *box = placeBox(rig, QPointF(200, 200), QStringLiteral("abcd"));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+
+    click(rig.window, QPointF(210, 210));
+    QCOMPARE(rig.page->selection().size(), 1);
+    QCOMPARE(rig.page->selection().constFirst(), static_cast<PageItem *>(box));
+
+    const QPointF pos = box->position();
+    drag(rig.window, QPointF(210, 210), QPointF(260, 240));
+    QCOMPARE(box->position(), pos + QPointF(50, 30));
+
+    // A corner drag scales the font, it never stretches the text.
+    const qreal sizeBefore = box->fontSize();
+    const QRectF rect = rig.page->selectionRect();
+    drag(rig.window, rect.bottomRight(), rect.bottomRight() + QPointF(60, 60));
+    QVERIFY(box->fontSize() > sizeBefore + 3);
+    QVERIFY(rig.page->selectionRect().width() > rect.width() + 20);
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QVERIFY(qAbs(box->fontSize() - sizeBefore) < 0.01);
+
+    QTest::keyClick(&rig.window, Qt::Key_Delete);
+    QCOMPARE(rig.page->items().size(), 0);
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(rig.page->items().constFirst(), static_cast<PageItem *>(box));
+    QCOMPARE(box->text(), QStringLiteral("abcd"));
+}
+
+void PageTest::doubleClickEditsABox()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+
+    QTest::mouseDClick(&rig.window, Qt::LeftButton, {}, QPoint(208, 212));
+    QVERIFY(rig.page->editing());
+    QCOMPARE(rig.page->editing()->cursorPosition(), 1);
+    type(rig.window, "X");
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("aXb"));
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.tools.tool(), Tools::Select);
+}
+
+void PageTest::clickAwayCommitsAndPlacesANewBox()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(200, 200));
+    type(rig.window, "ab");
+    click(rig.window, QPointF(500, 400)); // commits and places a new one
+
+    QCOMPARE(rig.page->items().size(), 1);
+    QVERIFY(rig.page->editing());
+    QVERIFY(rig.page->editing() != rig.page->items().constFirst());
+    type(rig.window, "cd");
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.page->items().size(), 2);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("ab"));
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constLast())->text(),
+             QStringLiteral("cd"));
+}
+
+void PageTest::typingIsFastWith200Boxes()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    // 200 boxes straight on the page, as after a long session.
+    for (int i = 0; i < 200; ++i) {
+        auto *box = new TextBox;
+        box->setPosition(QPointF(20 + (i % 20) * 40, 20 + (i / 20) * 40));
+        box->setText(QStringLiteral("x"));
+        rig.page->addItem(box);
+    }
+
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(600, 430));
+    QElapsedTimer clock;
+    clock.start();
+    type(rig.window, "hello world");
+    const qint64 ms = clock.elapsed();
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+
+    QCOMPARE(rig.page->items().size(), 201);
+    QVERIFY2(ms < 1000,
+             qPrintable(QStringLiteral("typing 11 chars beside 200 boxes took %1 ms")
+                            .arg(ms)));
 }
 
 QTEST_MAIN(PageTest)

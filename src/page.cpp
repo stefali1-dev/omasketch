@@ -16,6 +16,7 @@
 #include "palette.h"
 #include "selection.h"
 #include "stroke.h"
+#include "textbox.h"
 
 namespace {
 
@@ -212,6 +213,26 @@ private:
     QList<int> m_indices;
 };
 
+// One edit of an existing box. The box itself is owned by its AddItem (or
+// the item tree while on the page); edits only swap its text.
+class SetText : public QUndoCommand
+{
+public:
+    SetText(TextBox *box, const QString &from, const QString &to)
+        : m_box(box), m_from(from), m_to(to)
+    {
+        setText("edit text");
+    }
+
+    void undo() override { m_box->setText(m_from); }
+    void redo() override { m_box->setText(m_to); }
+
+private:
+    TextBox *m_box;
+    QString m_from;
+    QString m_to;
+};
+
 Page::Page(QQuickItem *parent)
     : QQuickItem(parent)
     , m_world(new QQuickItem(this))
@@ -234,10 +255,13 @@ Page::~Page()
     delete m_undo;
     delete m_stroke; // a stroke in progress never reached the stack and a
                      // visual parent does not own it
+    delete m_editing; // nor does a box being edited
 }
 
 void Page::setTool(Tools::Tool tool)
 {
+    if (m_editing)
+        commitEditing(); // keys went to the box; this path cannot run mid-edit
     cancelDrag();
     if (tool != Tools::Select)
         clearSelection();
@@ -274,21 +298,21 @@ void Page::setInk(Tools::Ink ink)
 
 void Page::undo()
 {
-    if (!m_stroke && m_drag == Drag::None)
+    if (!m_stroke && m_drag == Drag::None && !m_editing)
         m_undo->undo();
     updateSelectionBox(); // a move or resize under the box may have been undone
 }
 
 void Page::redo()
 {
-    if (!m_stroke && m_drag == Drag::None)
+    if (!m_stroke && m_drag == Drag::None && !m_editing)
         m_undo->redo();
     updateSelectionBox();
 }
 
 void Page::newPage()
 {
-    if (m_stroke || m_items.isEmpty() || m_drag != Drag::None)
+    if (m_stroke || m_items.isEmpty() || m_drag != Drag::None || m_editing)
         return;
     clearSelection();
     m_undo->push(new DeleteItems(this, m_items));
@@ -296,6 +320,10 @@ void Page::newPage()
 
 bool Page::escape()
 {
+    if (m_editing) {
+        commitEditing(); // the box stays, the tool stays
+        return true;
+    }
     if (m_drag == Drag::None && m_selection.isEmpty())
         return false;
     cancelDrag(); // a held drag must not commit after the Esc
@@ -428,7 +456,7 @@ void Page::clearSelection()
 
 void Page::deleteSelection()
 {
-    if (m_selection.isEmpty() || m_stroke || m_drag != Drag::None)
+    if (m_selection.isEmpty() || m_stroke || m_drag != Drag::None || m_editing)
         return;
     const QList<PageItem *> items = m_selection;
     clearSelection(); // not an undo step
@@ -476,9 +504,19 @@ void Page::mousePressEvent(QMouseEvent *event)
     case Tools::Select:
         pressSelect(event);
         break;
+    case Tools::Text:
+        pressText(event);
+        break;
     default:
-        break; // Text and Arrow come with later tasks
+        break; // Arrow comes with a later task
     }
+}
+
+void Page::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    // Same handling: pressSelect tells a double-click from a single one by
+    // the event type.
+    mousePressEvent(event);
 }
 
 void Page::mouseMoveEvent(QMouseEvent *event)
@@ -689,6 +727,15 @@ void Page::pressSelect(QMouseEvent *event)
 {
     const bool shift = event->modifiers() & Qt::ShiftModifier;
     m_pressWorld = toWorld(event->position());
+    // A double-click opens a text box for editing, caret at the click.
+    if (event->type() == QEvent::MouseButtonDblClick) {
+        if (TextBox *box = qobject_cast<TextBox *>(itemAt(m_pressWorld))) {
+            cancelDrag(); // the first press of the click started a move
+            startEditing(box, false, m_pressWorld - box->position());
+            event->accept();
+            return;
+        }
+    }
     const int corner = handleAt(event->position());
     if (corner >= 0) {
         startResize(corner);
@@ -732,6 +779,60 @@ void Page::pressSelect(QMouseEvent *event)
     if (window())
         window()->setCursor(Qt::CrossCursor);
     event->accept();
+}
+
+// The text tool on the page: a click inside the box being edited never
+// lands here (the editor child takes it and moves the caret natively); any
+// other click commits the edit first, then edits the box clicked on or
+// places a new one.
+void Page::pressText(QMouseEvent *event)
+{
+    if (m_editing)
+        commitEditing();
+    const QPointF world = toWorld(event->position());
+    TextBox *box = qobject_cast<TextBox *>(itemAt(world));
+    const bool isNew = !box;
+    if (!box) {
+        box = new TextBox;
+        box->setColor(m_ink);
+        box->setPosition(world);
+        box->setParentItem(m_world);
+    }
+    startEditing(box, isNew, world - box->position());
+    event->accept();
+}
+
+void Page::startEditing(TextBox *box, bool isNew, const QPointF &localPress)
+{
+    cancelDrag();
+    m_editing = box;
+    m_editingNew = isNew;
+    m_editingBefore = box->text();
+    connect(box, &TextBox::editingChanged, this, [this, box] {
+        if (m_editing == box && !box->isEditing())
+            commitEditing(); // the box stopped editing itself (Esc)
+    });
+    box->startEdit(localPress);
+}
+
+void Page::commitEditing()
+{
+    TextBox *box = m_editing;
+    m_editing = nullptr; // first: the stopEdit signal must not re-enter
+    disconnect(box, &TextBox::editingChanged, this, nullptr); // one per edit
+    box->stopEdit();
+    if (m_editingNew) {
+        if (box->text().isEmpty()) {
+            box->setParentItem(nullptr);
+            box->deleteLater(); // never entered the page: no undo step
+        } else {
+            addItem(box);
+            m_undo->push(new AddItem(this, box)); // one step with its text
+        }
+    } else if (box->text() != m_editingBefore) {
+        m_undo->push(new SetText(box, m_editingBefore, box->text()));
+    }
+    m_editingNew = false;
 }
 
 void Page::startMove()

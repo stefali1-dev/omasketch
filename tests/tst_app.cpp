@@ -10,6 +10,7 @@
 #include "palette.h"
 #include "page.h"
 #include "pageitem.h"
+#include "textbox.h"
 #include "tools.h"
 
 namespace {
@@ -60,6 +61,27 @@ void drag(QQuickWindow &window, const QPointF &from, const QPointF &to)
     mouse(window, QEvent::MouseButtonRelease, to);
 }
 
+void type(QQuickWindow &window, const QString &text)
+{
+    for (const QChar c : text)
+        QTest::keyClick(&window, c.toLatin1());
+}
+
+// Whether the accent appears in the rect: the caret of a box being edited.
+// The caret blinks, so the caller may need a few grabs.
+bool accentIn(QQuickWindow &window, const QRectF &rect)
+{
+    const QImage image = window.grabWindow();
+    const qreal dpr = image.devicePixelRatio();
+    for (int y = qRound(rect.top() * dpr); y < qRound(rect.bottom() * dpr); ++y) {
+        for (int x = qRound(rect.left() * dpr); x < qRound(rect.right() * dpr); ++x) {
+            if (image.pixelColor(x, y) == palette::accent)
+                return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 class AppTest : public QObject
@@ -69,6 +91,7 @@ class AppTest : public QObject
 private slots:
     void mainQmlWiresThePageAndDraws();
     void selectFlowThroughMainQml();
+    void textFlowThroughMainQml();
 };
 
 void AppTest::mainQmlWiresThePageAndDraws()
@@ -143,6 +166,65 @@ void AppTest::selectFlowThroughMainQml()
     QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
     QCOMPARE(page->items().size(), 2);
     QCOMPARE(pixel(*window, QPointF(190, 340)), palette::ink);
+}
+
+void AppTest::textFlowThroughMainQml()
+{
+    // The text tool end to end through the real Main.qml: tool key, click,
+    // typing with the accent caret, commit, undo — and Esc back to select.
+    Tools tools;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("Colors", paletteMap());
+    engine.rootContext()->setContextProperty("tools", &tools);
+    engine.loadFromModule("Omasketch", "Main");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    QVERIFY(window);
+    tools.attach(window);
+    Page *page = pageIn(window);
+    QVERIFY(page);
+    tools.setPage(page);
+
+    QTest::qWait(50);
+    QTest::keyClick(window, Qt::Key_T);
+    QCOMPARE(tools.tool(), Tools::Text);
+    QCOMPARE(window->cursor().shape(), Qt::IBeamCursor);
+
+    mouse(*window, QEvent::MouseButtonPress, QPointF(300, 300));
+    mouse(*window, QEvent::MouseButtonRelease, QPointF(300, 300));
+    QVERIFY(page->editing());
+
+    type(*window, QStringLiteral("if (x == 0)"));
+    QTest::keyClick(window, Qt::Key_Return);
+    type(*window, QStringLiteral("    return [1, 3, 5];"));
+
+    // The accent caret shows in the box (it blinks: try across a period).
+    bool caret = false;
+    for (int i = 0; i < 12 && !caret; ++i) {
+        caret = accentIn(*window, QRectF(298, 298, 260, 50));
+        if (!caret)
+            QTest::qWait(80);
+    }
+    QVERIFY(caret);
+
+    mouse(*window, QEvent::MouseButtonPress, QPointF(650, 400));
+    mouse(*window, QEvent::MouseButtonRelease, QPointF(650, 400)); // commit + new box
+    QCOMPARE(page->items().size(), 1);
+    QVERIFY(page->editing());
+    QTest::keyClick(window, Qt::Key_Escape); // the empty new box just goes
+
+    QCOMPARE(page->items().size(), 1);
+    auto *box = qobject_cast<TextBox *>(page->items().constFirst());
+    QVERIFY(box);
+    QCOMPARE(box->text(), QStringLiteral("if (x == 0)\n    return [1, 3, 5];"));
+
+    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(page->items().size(), 0);
+    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(page->items().size(), 1);
+
+    QTest::keyClick(window, Qt::Key_Escape);
+    QCOMPARE(tools.tool(), Tools::Select);
 }
 
 QTEST_MAIN(AppTest)
