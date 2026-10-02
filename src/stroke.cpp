@@ -7,6 +7,8 @@
 #include <QVector3D>
 #include <cmath>
 
+#include "geometry.h"
+
 // Antialiasing comes from the window's multisampled surface (main.cpp), so the
 // strip is plain opaque geometry: two vertices per path point, offset by half
 // the stroke width along the path normal, with straight end caps.
@@ -15,58 +17,6 @@
 // raw input points, the standard zero-lag filter: the drawn end always lands
 // exactly on the newest pointer position. Béziers stay inside the control
 // polygon, so the cached bounds from the raw points cover the whole stroke.
-
-namespace {
-
-qreal distanceSquared(const QPointF &a, const QPointF &b)
-{
-    const QPointF d = b - a;
-    return d.x() * d.x() + d.y() * d.y();
-}
-
-// Squared distance from p to the segment a-b.
-qreal segmentDistanceSquared(const QPointF &p, const QPointF &a, const QPointF &b)
-{
-    const QPointF ab = b - a;
-    const qreal length2 = ab.x() * ab.x() + ab.y() * ab.y();
-    if (length2 == 0)
-        return distanceSquared(p, a);
-    const qreal t = qBound(0.0, QPointF::dotProduct(p - a, ab) / length2, 1.0);
-    return distanceSquared(p, a + ab * t);
-}
-
-// Whether a segment touches a rect (Liang-Barsky clip): true when an endpoint
-// is inside or the segment crosses any of the four edges.
-bool segmentTouchesRect(const QPointF &a, const QPointF &b, const QRectF &r)
-{
-    if (r.contains(a) || r.contains(b))
-        return true;
-    const qreal dx = b.x() - a.x();
-    const qreal dy = b.y() - a.y();
-    const qreal p[] = {-dx, dx, -dy, dy};
-    const qreal q[] = {a.x() - r.left(), r.right() - a.x(),
-                       a.y() - r.top(),  r.bottom() - a.y()};
-    qreal t0 = 0;
-    qreal t1 = 1;
-    for (int i = 0; i < 4; ++i) {
-        if (p[i] == 0) {
-            if (q[i] < 0)
-                return false; // parallel to this pair of edges and outside
-        } else {
-            const qreal t = q[i] / p[i];
-            if (p[i] < 0) {
-                if (t > t1) return false;
-                if (t > t0) t0 = t;
-            } else {
-                if (t < t0) return false;
-                if (t < t1) t1 = t;
-            }
-        }
-    }
-    return true;
-}
-
-} // namespace
 
 Stroke::Stroke(QQuickItem *parent)
     : PageItem(parent)
@@ -134,9 +84,9 @@ bool Stroke::hitTest(const QPointF &worldPos, qreal tolerance) const
     const QPointF p = worldPos - position(); // to item coordinates
     const qreal tolerance2 = tolerance * tolerance;
     if (m_points.size() == 1)
-        return distanceSquared(p, m_points.constFirst()) <= tolerance2;
+        return geom::distanceSquared(p, m_points.constFirst()) <= tolerance2;
     for (int i = 0; i + 1 < m_points.size(); ++i) {
-        if (segmentDistanceSquared(p, m_points[i], m_points[i + 1]) <= tolerance2)
+        if (geom::segmentDistanceSquared(p, m_points[i], m_points[i + 1]) <= tolerance2)
             return true;
     }
     return false;
@@ -154,7 +104,7 @@ bool Stroke::touchesRect(const QRectF &worldRect) const
     if (m_points.size() == 1)
         return rect.contains(m_points.constFirst());
     for (int i = 0; i + 1 < m_points.size(); ++i) {
-        if (segmentTouchesRect(m_points[i], m_points[i + 1], rect))
+        if (geom::segmentTouchesRect(m_points[i], m_points[i + 1], rect))
             return true;
     }
     return false;

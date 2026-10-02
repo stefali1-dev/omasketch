@@ -12,6 +12,7 @@
 class QNativeGestureEvent;
 class QUndoStack;
 class QVariantAnimation;
+class Arrow;
 class PageItem;
 class SelectionOverlay;
 class Stroke;
@@ -50,7 +51,7 @@ public:
     bool escape();
 
     bool isPanning() const { return m_panning; }
-    bool isDrawing() const { return m_stroke != nullptr; }
+    bool isDrawing() const { return m_drawing != nullptr; }
     // The box being edited, or null. Not committed, so not in items() yet.
     TextBox *editing() const { return m_editing; }
 
@@ -125,6 +126,9 @@ private:
     void pressText(QMouseEvent *event);
     // Opens the box for editing; localPress places the caret at the click.
     void startEditing(TextBox *box, bool isNew, const QPointF &localPress);
+    // Commits the item being drawn (stroke or arrow) as an undo step; a
+    // click without a real drag makes nothing. snap bends an arrow to 45°.
+    void finishDrawing(const QPointF &world, bool snap);
     void startMove();
     void startResize(int corner);
     void resizeTo(const QPointF &worldPos, bool free);
@@ -147,7 +151,7 @@ private:
     QList<PageItem *> m_items;
     QList<PageItem *> m_selection;
 
-    Stroke *m_stroke = nullptr; // stroke in progress
+    PageItem *m_drawing = nullptr; // item being drawn: a Stroke or an Arrow
     Tools::Tool m_tool = Tools::Select;
     QColor m_ink = Qt::black;
     qreal m_strokeWidth = 2.75;

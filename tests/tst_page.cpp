@@ -9,6 +9,7 @@
 #include <QtQuick/QQuickWindow>
 #include <QtTest>
 
+#include "arrow.h"
 #include "palette.h"
 #include "page.h"
 #include "pageitem.h"
@@ -218,6 +219,11 @@ private slots:
     void boundsFollowTheLiveTextWhileEditing();
     void selectToolClickAwayCommitsTheEdit();
     void zoomKeysWorkWhileTyping();
+    void arrowDrawsShaftAndHeadWithUndoRedo();
+    void arrowShiftSnapsTo45Degrees();
+    void arrowClickWithoutDragMakesNothing();
+    void arrowHitTestsNearTheInkNotTheBox();
+    void arrowMovesResizesDeletesLikeAStroke();
 };
 
 void PageTest::drawShowsStrokeAndUndoRedoRemovesRestoresIt()
@@ -1532,6 +1538,137 @@ void PageTest::zoomKeysWorkWhileTyping()
     QCOMPARE(rig.page->items().size(), 1);
     QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
              QStringLiteral("ab-0"));
+}
+
+void PageTest::arrowDrawsShaftAndHeadWithUndoRedo()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_A);
+    QCOMPARE(rig.tools.tool(), Tools::Arrow);
+
+    drag(rig.window, QPointF(100, 300), QPointF(400, 300));
+
+    QCOMPARE(rig.page->items().size(), 1);
+    QVERIFY(qobject_cast<Arrow *>(rig.page->items().constFirst()));
+    QCOMPARE(pixel(rig.window, QPointF(200, 300)), palette::ink); // the shaft
+    QCOMPARE(pixel(rig.window, QPointF(395, 300)), palette::ink); // the head
+    QCOMPARE(pixel(rig.window, QPointF(395, 304)), palette::page); // past its slant
+
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 0);
+    QCOMPARE(pixel(rig.window, QPointF(200, 300)), palette::page);
+
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(pixel(rig.window, QPointF(395, 300)), palette::ink);
+}
+
+void PageTest::arrowShiftSnapsTo45Degrees()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_A);
+
+    // A near-horizontal drag snaps flat: no ink where the raw line would run.
+    mouse(rig.window, QEvent::MouseButtonPress, QPointF(150, 350));
+    mouse(rig.window, QEvent::MouseMove, QPointF(350, 356), Qt::ShiftModifier);
+    mouse(rig.window, QEvent::MouseButtonRelease, QPointF(350, 356),
+          Qt::ShiftModifier);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(pixel(rig.window, QPointF(200, 350)), palette::ink);
+    QCOMPARE(pixel(rig.window, QPointF(345, 350)), palette::ink); // the head
+    QCOMPARE(pixel(rig.window, QPointF(200, 352)), palette::page);
+    QCOMPARE(pixel(rig.window, QPointF(345, 355)), palette::page);
+
+    // A steep drag snaps to -45°: the line runs up at exactly that slant.
+    mouse(rig.window, QEvent::MouseButtonPress, QPointF(150, 400));
+    mouse(rig.window, QEvent::MouseMove, QPointF(350, 190), Qt::ShiftModifier);
+    mouse(rig.window, QEvent::MouseButtonRelease, QPointF(350, 190),
+          Qt::ShiftModifier);
+    QCOMPARE(rig.page->items().size(), 2);
+    QCOMPARE(pixel(rig.window, QPointF(252, 297)), palette::ink);
+}
+
+void PageTest::arrowClickWithoutDragMakesNothing()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 250}, {150, 250}, {200, 250}, {250, 250}, {300, 250}});
+    QTest::keyClick(&rig.window, Qt::Key_A);
+
+    click(rig.window, QPointF(400, 300));
+    QCOMPARE(rig.page->items().size(), 1); // the click made nothing
+
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 0); // and minted no undo step of its own
+}
+
+void PageTest::arrowHitTestsNearTheInkNotTheBox()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_A);
+    drag(rig.window, QPointF(200, 200), QPointF(400, 200));
+    auto *horizontal = static_cast<Arrow *>(rig.page->items().constFirst());
+
+    // With a 2 px tolerance the shaft alone cannot reach the head's slant,
+    // yet the head is ink; just past its edge or before its base, nothing.
+    QVERIFY(horizontal->hitTest(QPointF(393.5, 202.2), 2));
+    QVERIFY(!horizontal->hitTest(QPointF(393.5, 202.6), 2));
+    QVERIFY(!horizontal->hitTest(QPointF(385, 203), 2));
+
+    drag(rig.window, QPointF(100, 100), QPointF(300, 300)); // a diagonal one
+    QTest::keyClick(&rig.window, Qt::Key_V);
+
+    click(rig.window, QPointF(150, 250)); // inside its box, 70 px off the line
+    QCOMPARE(rig.page->selection().size(), 0);
+
+    click(rig.window, QPointF(150, 148)); // 1.4 px off the diagonal: a hit
+    QCOMPARE(rig.page->selection().size(), 1);
+    QCOMPARE(rig.page->selection().constFirst(), rig.page->items().constLast());
+}
+
+void PageTest::arrowMovesResizesDeletesLikeAStroke()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_A);
+    drag(rig.window, QPointF(200, 200), QPointF(400, 200));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(300, 200)); // on the shaft
+    QCOMPARE(rig.page->selection().size(), 1);
+
+    // Moving: the whole arrow follows the pointer, geometry untouched.
+    drag(rig.window, QPointF(300, 200), QPointF(340, 230));
+    auto *arrow = static_cast<Arrow *>(rig.page->items().constFirst());
+    QCOMPARE(arrow->position(), QPointF(40, 30));
+    QCOMPARE(pixel(rig.window, QPointF(340, 230)), palette::ink);
+    QCOMPARE(pixel(rig.window, QPointF(300, 200)), palette::page);
+
+    QTest::keyClick(&rig.window, Qt::Key_Delete);
+    QCOMPARE(rig.page->items().size(), 0);
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(pixel(rig.window, QPointF(340, 230)), palette::ink);
+
+    // Resizing bakes into the endpoints once; the line width stays.
+    click(rig.window, QPointF(340, 230));
+    const int before = inkRows(rig.window, 340);
+    const QRectF rect = rig.page->selectionRect();
+    drag(rig.window, rect.bottomRight(), rect.bottomRight() + QPointF(60, 60));
+    const int after = inkRows(rig.window, 340);
+    QVERIFY(before >= 2);
+    QVERIFY(qAbs(after - before) <= 1);
+
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(pixel(rig.window, QPointF(340, 230)), palette::ink);
 }
 
 QTEST_MAIN(PageTest)

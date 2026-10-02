@@ -16,8 +16,11 @@ qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
 
 qt_add_executable(omasketch
+    src/arrow.cpp
+    src/arrow.h
     src/files.cpp
     src/files.h
+    src/geometry.h
     src/imageitem.cpp
     src/imageitem.h
     src/main.cpp
@@ -51,6 +54,9 @@ target_include_directories(omasketch PRIVATE src)
 
 # The tests need a page too; the QML module itself only matters for the app.
 set(OMASKETCH_PAGE_SOURCES
+    src/arrow.cpp
+    src/arrow.h
+    src/geometry.h
     src/imageitem.cpp
     src/imageitem.h
     src/page.cpp

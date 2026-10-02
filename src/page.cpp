@@ -12,6 +12,7 @@
 #include <QWheelEvent>
 #include <QtMath>
 
+#include "arrow.h"
 #include "imageitem.h"
 #include "pageitem.h"
 #include "palette.h"
@@ -29,6 +30,7 @@ constexpr int kHomeEase = 150;    // ms back to the drawing
 constexpr int kFade = 80;         // ms for the selection box and erase fades
 
 constexpr qreal kHitTolerance = 6; // screen pixels a click may miss a line by
+constexpr qreal kMinDrag = 4;      // screen pixels a drag must cover to draw
 
 qreal clampScale(qreal s)
 {
@@ -271,8 +273,8 @@ Page::~Page()
 {
     // Commands own their strokes; drop the stack before the item tree goes.
     delete m_undo;
-    delete m_stroke; // a stroke in progress never reached the stack and a
-                     // visual parent does not own it
+    delete m_drawing; // an item in progress never reached the stack and a
+                      // visual parent does not own it
     // Nor does a box being edited — unless it was committed earlier: then
     // its AddItem on the stack (destroyed above) already freed it.
     if (m_editing && !m_items.contains(m_editing))
@@ -319,21 +321,21 @@ void Page::setInk(Tools::Ink ink)
 
 void Page::undo()
 {
-    if (!m_stroke && m_drag == Drag::None && !m_editing)
+    if (!m_drawing && m_drag == Drag::None && !m_editing)
         m_undo->undo();
     updateSelectionBox(); // a move or resize under the box may have been undone
 }
 
 void Page::redo()
 {
-    if (!m_stroke && m_drag == Drag::None && !m_editing)
+    if (!m_drawing && m_drag == Drag::None && !m_editing)
         m_undo->redo();
     updateSelectionBox();
 }
 
 void Page::newPage()
 {
-    if (m_stroke || m_items.isEmpty() || m_drag != Drag::None || m_editing)
+    if (m_drawing || m_items.isEmpty() || m_drag != Drag::None || m_editing)
         return;
     clearSelection();
     m_undo->push(new DeleteItems(this, m_items));
@@ -354,7 +356,7 @@ bool Page::escape()
 
 void Page::zoomStep(int direction)
 {
-    if (m_stroke || m_panning)
+    if (m_drawing || m_panning)
         return;
     const qreal target = m_zoom * qPow(kZoomStep, direction);
     animateTo(target, posForZoom(target, anchorPoint()), kStepEase);
@@ -362,7 +364,7 @@ void Page::zoomStep(int direction)
 
 void Page::zoomHome()
 {
-    if (m_stroke || m_panning)
+    if (m_drawing || m_panning)
         return;
     const QRectF bounds = drawingBounds();
     const QPointF target = bounds.isValid()
@@ -380,7 +382,7 @@ void Page::setSpaceHeld(bool held)
 
 void Page::pinch(QNativeGestureEvent *event)
 {
-    if (event->gestureType() != Qt::ZoomNativeGesture || m_stroke || m_panning
+    if (event->gestureType() != Qt::ZoomNativeGesture || m_drawing || m_panning
         || m_drag != Drag::None)
         return;
     setZoomAt(m_zoom * (1 + event->value()), mapFromScene(event->scenePosition()));
@@ -487,7 +489,7 @@ void Page::clearSelection()
 
 void Page::deleteSelection()
 {
-    if (m_selection.isEmpty() || m_stroke || m_drag != Drag::None || m_editing)
+    if (m_selection.isEmpty() || m_drawing || m_drag != Drag::None || m_editing)
         return;
     const QList<PageItem *> items = m_selection;
     clearSelection(); // not an undo step
@@ -505,7 +507,7 @@ void Page::mousePressEvent(QMouseEvent *event)
 {
     m_mouse = event->position();
     m_mouseSeen = true;
-    if (event->button() != Qt::LeftButton || m_stroke)
+    if (event->button() != Qt::LeftButton || m_drawing)
         return;
     if (m_spaceHeld) {
         m_panning = true;
@@ -522,11 +524,23 @@ void Page::mousePressEvent(QMouseEvent *event)
         commitEditing();
     switch (m_tool) {
     case Tools::Draw: {
-        m_stroke = new Stroke;
-        m_stroke->setColor(m_ink);
-        m_stroke->setStrokeWidth(m_strokeWidth);
-        m_stroke->setParentItem(m_world); // visible while drawing
-        m_stroke->begin(toWorld(event->position()));
+        auto *stroke = new Stroke;
+        stroke->setColor(m_ink);
+        stroke->setStrokeWidth(m_strokeWidth);
+        stroke->setParentItem(m_world); // visible while drawing
+        stroke->begin(toWorld(event->position()));
+        m_drawing = stroke;
+        event->accept();
+        break;
+    }
+    case Tools::Arrow: {
+        auto *arrow = new Arrow;
+        arrow->setColor(m_ink);
+        arrow->setStrokeWidth(m_strokeWidth);
+        arrow->setParentItem(m_world); // visible while drawing
+        m_pressWorld = toWorld(event->position());
+        arrow->begin(m_pressWorld);
+        m_drawing = arrow;
         event->accept();
         break;
     }
@@ -542,8 +556,6 @@ void Page::mousePressEvent(QMouseEvent *event)
     case Tools::Text:
         pressText(event);
         break;
-    default:
-        break; // Arrow comes with a later task
     }
 }
 
@@ -563,8 +575,13 @@ void Page::mouseMoveEvent(QMouseEvent *event)
         event->accept();
         return;
     }
-    if (m_stroke) {
-        m_stroke->addPoint(toWorld(event->position()));
+    if (m_drawing) {
+        const QPointF world = toWorld(event->position());
+        if (auto *arrow = qobject_cast<Arrow *>(m_drawing))
+            arrow->setEnd(event->modifiers() & Qt::ShiftModifier
+                              ? arrow->snapped(world) : world);
+        else
+            static_cast<Stroke *>(m_drawing)->addPoint(world);
         event->accept();
         return;
     }
@@ -606,10 +623,9 @@ void Page::mouseReleaseEvent(QMouseEvent *event)
         event->accept();
         return;
     }
-    if (m_stroke) {
-        m_stroke->addPoint(toWorld(event->position())); // the final build
-        m_undo->push(new AddItem(this, m_stroke)); // redo re-adds it: a no-op
-        m_stroke = nullptr;
+    if (m_drawing) {
+        finishDrawing(toWorld(event->position()),
+                      event->modifiers() & Qt::ShiftModifier);
         event->accept();
         return;
     }
@@ -632,7 +648,7 @@ void Page::mouseReleaseEvent(QMouseEvent *event)
 
 void Page::wheelEvent(QWheelEvent *event)
 {
-    if (m_stroke || m_panning)
+    if (m_drawing || m_panning)
         return;
     const Qt::KeyboardModifiers mods = event->modifiers();
     if (mods & (Qt::ControlModifier | Qt::MetaModifier)) {
@@ -748,7 +764,7 @@ int Page::handleAt(const QPointF &pagePos) const
 void Page::updateHoverCursor(const QPointF &pagePos)
 {
     // Dragging tools own their cursors (the resize drag keeps the diagonal).
-    if (m_tool != Tools::Select || m_drag != Drag::None || m_stroke || m_panning
+    if (m_tool != Tools::Select || m_drag != Drag::None || m_drawing || m_panning
         || m_spaceHeld || !window()) {
         return;
     }
@@ -871,6 +887,22 @@ void Page::commitEditing()
         m_undo->push(new SetText(this, box, m_editingBefore, box->text()));
     }
     m_editingNew = false;
+}
+
+void Page::finishDrawing(const QPointF &world, bool snap)
+{
+    if (auto *arrow = qobject_cast<Arrow *>(m_drawing)) {
+        arrow->setEnd(snap ? arrow->snapped(world) : world);
+        if (QLineF(m_pressWorld, world).length() < kMinDrag) {
+            delete m_drawing; // a click is nothing, like an empty text box
+            m_drawing = nullptr;
+            return;
+        }
+    } else {
+        static_cast<Stroke *>(m_drawing)->addPoint(world); // the final build
+    }
+    m_undo->push(new AddItem(this, m_drawing)); // redo re-adds it: a no-op
+    m_drawing = nullptr;
 }
 
 void Page::startMove()

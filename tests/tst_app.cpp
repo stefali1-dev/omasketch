@@ -99,6 +99,7 @@ private slots:
     void textFlowThroughMainQml();
     void saveFlowThroughMainQml();
     void closeAutosavesThroughMainQml();
+    void arrowFlowThroughMainQml();
 };
 
 void AppTest::mainQmlWiresThePageAndDraws()
@@ -256,6 +257,7 @@ void AppTest::saveFlowThroughMainQml()
     Page *page = pageIn(window);
     QVERIFY(page);
     tools.setPage(page);
+<<<<<<< HEAD
     files.setPage(page);
     QObject::connect(&tools, &Tools::saveRequested, &files, &Files::save);
 
@@ -314,6 +316,54 @@ void AppTest::closeAutosavesThroughMainQml()
     const QStringList saved = QDir(home.filePath("Pictures/Drawings"))
                                   .entryList(QDir::Files);
     QCOMPARE(saved.size(), 1);
+}
+
+void AppTest::arrowFlowThroughMainQml()
+{
+    // The arrow tool end to end through the real Main.qml: the key and the
+    // crosshair, pixels at the shaft and the head, the tool staying arrow,
+    // recolour and undo — all through the wiring main.cpp does.
+    Tools tools;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("Colors", paletteMap());
+    engine.rootContext()->setContextProperty("tools", &tools);
+    engine.loadFromModule("Omasketch", "Main");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    QVERIFY(window);
+    tools.attach(window);
+    Page *page = pageIn(window);
+    QVERIFY(page);
+    tools.setPage(page);
+
+    QTest::qWait(50);
+    QTest::keyClick(window, Qt::Key_A);
+    QCOMPARE(tools.tool(), Tools::Arrow);
+    QCOMPARE(window->cursor().shape(), Qt::CrossCursor);
+
+    draw(*window, {{100, 300}, {200, 300}, {300, 300}});
+    QCOMPARE(page->items().size(), 1);
+    QCOMPARE(pixel(*window, QPointF(200, 300)), palette::ink); // the shaft
+    QCOMPARE(pixel(*window, QPointF(295, 300)), palette::ink); // the head
+
+    draw(*window, {{100, 400}, {200, 400}, {300, 400}});
+    QCOMPARE(page->items().size(), 2); // the tool stayed arrow
+
+    QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+    QCOMPARE(tools.tool(), Tools::Select);
+    QTest::keyClick(window, Qt::Key_2); // recolour both
+    QCOMPARE(pixel(*window, QPointF(200, 300)), palette::red);
+    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(pixel(*window, QPointF(200, 300)), palette::ink);
+
+    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(page->items().size(), 1);
+    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(page->items().size(), 0);
+    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(page->items().size(), 1);
+    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(page->items().size(), 2);
 }
 
 QTEST_MAIN(AppTest)
