@@ -8,6 +8,7 @@
 #include <QtQml/QQmlEngine>
 #include <QtQuick/QQuickWindow>
 #include <QtTest>
+#include <QtMath>
 
 #include "arrow.h"
 #include "palette.h"
@@ -174,6 +175,7 @@ private slots:
     void ctrlZeroBringsTheDrawingBack();
     void panAndZoomRebuildNoGeometry();
     void aDrawingStrokeMirrorsTheWorldThenJoinsIt();
+    void aFastStrokesPathIsSampledDensely();
     void clickSelectsOnlyNearTheLine();
     void clickPicksTheTopmostStroke();
     void shiftClickAddsAndRemoves();
@@ -487,6 +489,28 @@ void PageTest::ctrlZeroBringsTheDrawingBack()
 // uploads out of the world's merged batches). Pin the mirror and the
 // rendering: the ink still passes through the pointer at zoom 2, and the
 // finished stroke joins the world at identity.
+// A fast flick arrives as a few far-apart points; the smoothed path must
+// still sample the curve finely (stroke.cpp grows the subdivision count
+// with the segment length), or the straight chords stay visible.
+void PageTest::aFastStrokesPathIsSampledDensely()
+{
+    Stroke stroke;
+    stroke.setStrokeWidth(2.75);
+    const QPointF centre(200, 300);
+    stroke.begin(centre + QPointF(260, 0));
+    for (int i = 1; i <= 6; ++i) {
+        const qreal a = qDegreesToRadians(15.0 * i);
+        stroke.addPoint(centre + QPointF(260 * std::cos(a), -260 * std::sin(a)));
+    }
+    const QList<QPointF> path = stroke.smoothedPath();
+    // The spans raw-end -> first/last midpoint are curve tangents, not
+    // chords; everything between must sample the curve at a few pixels.
+    qreal maxChord = 0;
+    for (int i = 2; i + 1 < path.size(); ++i)
+        maxChord = qMax(maxChord, QLineF(path[i - 1], path[i]).length());
+    QVERIFY(maxChord < 10.0);
+}
+
 void PageTest::aDrawingStrokeMirrorsTheWorldThenJoinsIt()
 {
     Rig rig;

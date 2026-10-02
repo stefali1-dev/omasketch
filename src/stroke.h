@@ -34,12 +34,15 @@ public:
     // panning, zooming and moving rebuild nothing.
     int geometryBuildCount() const { return m_buildCount; }
 
+    // The smoothed path the strip is built from, raw input points included;
+    // the tests pin its sampling density on fast (sparse) input.
+    QList<QPointF> smoothedPath() const;
+
 protected:
     QRectF localBounds() const override { return m_geomBounds; }
     QRectF boundingRect() const override;
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data) override;
 private:
-    QList<QPointF> smoothedPath() const;
     void recomputeBounds();
 
     QColor m_color = Qt::black;

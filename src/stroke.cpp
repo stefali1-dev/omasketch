@@ -137,13 +137,21 @@ QList<QPointF> Stroke::smoothedPath() const
     path.reserve(n * 2);
     path.append(m_points.constFirst());
 
-    // Four subdivisions per quadratic keep faceting far below a pixel.
-    constexpr int kSegments = 4;
+    // Four subdivisions per quadratic keep faceting far below a pixel at
+    // normal pointer spacing; a fast flick arrives as sparse points, where
+    // four straight chords stay visible, so the count grows with the
+    // segment length instead (~one sample per 6 px, capped). Still zero
+    // lag: the curve is fixed once the points are in.
+    constexpr int kMinSegments = 4;
+    constexpr int kMaxSegments = 24;
+    constexpr qreal kPxPerSegment = 6;
     for (int i = 1; i < n - 1; ++i) {
         const QPointF from = (m_points[i - 1] + m_points[i]) / 2;
         const QPointF to = (m_points[i] + m_points[i + 1]) / 2;
-        for (int s = 1; s <= kSegments; ++s) {
-            const qreal t = qreal(s) / kSegments;
+        const int segments = qBound(kMinSegments,
+            int(std::ceil(QLineF(from, to).length() / kPxPerSegment)), kMaxSegments);
+        for (int s = 1; s <= segments; ++s) {
+            const qreal t = qreal(s) / segments;
             const qreal u = 1 - t;
             path.append(u * u * from + 2 * u * t * m_points[i] + t * t * to);
         }
