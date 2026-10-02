@@ -112,6 +112,9 @@ public:
 
 signals:
     void panningChanged();
+    // A fresh page threw everything away (undoable); the old content's save
+    // target no longer fits what is on the page now.
+    void freshPage();
 
 protected:
     void hoverMoveEvent(QHoverEvent *event) override;

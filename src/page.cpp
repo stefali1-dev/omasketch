@@ -341,6 +341,7 @@ void Page::newPage()
         return;
     clearSelection();
     m_undo->push(new DeleteItems(this, m_items));
+    emit freshPage();
 }
 
 bool Page::escape()

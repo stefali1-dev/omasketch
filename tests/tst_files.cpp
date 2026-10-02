@@ -153,6 +153,7 @@ class FilesTest : public QObject
 private slots:
     void exportCropsToTheDrawingWhereverTheViewSits();
     void ctrlSChoosesADefaultPathThenOverwritesIt();
+    void freshPageForgetsTheSaveTarget();
     void saveAsMovesTheTarget();
     void emptyPageWritesNothing();
     void exportBeyondTheTextureLimitCapsTheScale();
@@ -248,6 +249,37 @@ void FilesTest::ctrlSChoosesADefaultPathThenOverwritesIt()
     QFile secondFile(path);
     QVERIFY(secondFile.open(QIODevice::ReadOnly));
     QVERIFY(secondFile.readAll() != before);
+}
+
+// Ctrl+N throws the drawing away (undoable), so the next save must start a
+// new file instead of silently overwriting the previous drawing's target.
+void FilesTest::freshPageForgetsTheSaveTarget()
+{
+    freshHome();
+    Rig rig;
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 300}, {150, 300}, {200, 300}, {250, 300}, {300, 300}});
+    const QString path = m_home.filePath("first.png");
+    rig.files.confirm(path, "save");
+    QCOMPARE(rig.files.saveTarget(), path);
+    const QByteArray before = [&path] {
+        QFile file(path);
+        file.open(QIODevice::ReadOnly);
+        return file.readAll();
+    }();
+
+    QTest::keyClick(&rig.window, Qt::Key_N, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 0);
+    QCOMPARE(rig.files.saveTarget(), QString()); // forgotten
+
+    draw(rig.window, {{100, 100}, {150, 100}, {200, 100}});
+    rig.files.save(); // a new timestamped file, never first.png
+
+    QVERIFY(rig.files.saveTarget() != path);
+    QCOMPARE(savedNames(m_home).size(), 1);
+    QFile firstFile(path);
+    firstFile.open(QIODevice::ReadOnly);
+    QCOMPARE(firstFile.readAll(), before); // untouched
 }
 
 void FilesTest::saveAsMovesTheTarget()

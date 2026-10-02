@@ -163,6 +163,10 @@ Files::Files(QObject *parent)
 void Files::setPage(Page *page)
 {
     m_page = page;
+    // A fresh page has no file yet: the next save picks a new timestamped
+    // name instead of overwriting the previous drawing's file. Undoing the
+    // fresh page brings the drawing back but not the target.
+    connect(page, &Page::freshPage, this, [this] { m_target.clear(); });
 }
 
 void Files::save()
