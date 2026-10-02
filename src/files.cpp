@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImageReader>
+#include <QImageWriter>
 #include <QQuickItem>
 #include <QQuickRenderControl>
 #include <QQuickRenderTarget>
@@ -267,8 +268,13 @@ bool Files::writePng(const QRectF &worldRect, const QString &path)
     const QDir dir = QFileInfo(path).dir();
     if (!dir.mkpath("."))
         return false;
-    return renderWorldToImage(m_page->worldItem(), worldRect, exportScale(m_page))
-        .save(path, "PNG");
+    // PNG's compression option is a 0-100 scale (zlib-style 0-9 all collapse
+    // to stored), so 31 means zlib level 3: a big page saves ~25% faster and
+    // the file grows by about a third (measured, see the perf-pass report).
+    QImageWriter writer(path, "PNG");
+    writer.setCompression(31);
+    return writer.write(renderWorldToImage(m_page->worldItem(), worldRect,
+                                           exportScale(m_page)));
 }
 
 QRectF Files::exportRect() const
