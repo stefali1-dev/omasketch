@@ -5,6 +5,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QSurfaceFormat>
 #include <QVariant>
 #include <cstdio>
@@ -29,6 +30,13 @@ qint64 lastFrame = -1;
 
 int main(int argc, char *argv[])
 {
+    // Vulkan gets the first frame up faster than the GL default (the scene
+    // graph's GL context creation otherwise sits in the QML load). An explicit
+    // setGraphicsApi would override QSG_RHI_BACKEND, so only ask for Vulkan
+    // when the environment does not choose; Qt falls back to GL without it.
+    if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND"))
+        QQuickWindow::setGraphicsApi(QSGRendererInterface::GraphicsApi::VulkanRhi);
+
     // Multisampling smooths the stroke edges; the frame-time bench measures
     // what it costs.
     QSurfaceFormat format;
