@@ -213,24 +213,41 @@ private:
     QList<int> m_indices;
 };
 
-// One edit of an existing box. The box itself is owned by its AddItem (or
-// the item tree while on the page); edits only swap its text.
+// One edit of an existing box. Editing the text down to empty removes the
+// box in the same step, so undo puts it back with its text; the box itself
+// stays owned by its AddItem, this command only moves it in and out of the
+// page.
 class SetText : public QUndoCommand
 {
 public:
-    SetText(TextBox *box, const QString &from, const QString &to)
-        : m_box(box), m_from(from), m_to(to)
+    SetText(Page *page, TextBox *box, const QString &from, const QString &to)
+        : m_page(page), m_box(box), m_from(from), m_to(to)
     {
+        m_index = page->items().indexOf(box);
         setText("edit text");
     }
 
-    void undo() override { m_box->setText(m_from); }
-    void redo() override { m_box->setText(m_to); }
+    void undo() override
+    {
+        m_box->setText(m_from);
+        if (m_to.isEmpty())
+            m_page->restoreItem(m_box, m_index);
+    }
+
+    void redo() override
+    {
+        if (m_to.isEmpty())
+            m_page->removeItem(m_box);
+        else
+            m_box->setText(m_to);
+    }
 
 private:
+    Page *m_page;
     TextBox *m_box;
     QString m_from;
     QString m_to;
+    int m_index = 0; // stacking position for the undo of a removal
 };
 
 Page::Page(QQuickItem *parent)
@@ -255,7 +272,10 @@ Page::~Page()
     delete m_undo;
     delete m_stroke; // a stroke in progress never reached the stack and a
                      // visual parent does not own it
-    delete m_editing; // nor does a box being edited
+    // Nor does a box being edited — unless it was committed earlier: then
+    // its AddItem on the stack (destroyed above) already freed it.
+    if (m_editing && !m_items.contains(m_editing))
+        delete m_editing;
 }
 
 void Page::setTool(Tools::Tool tool)
@@ -485,6 +505,10 @@ void Page::mousePressEvent(QMouseEvent *event)
         event->accept();
         return;
     }
+    // Any editing press lands outside the box (inside, the editor child
+    // takes it): it commits first, whichever tool acts on it.
+    if (m_editing)
+        commitEditing();
     switch (m_tool) {
     case Tools::Draw: {
         m_stroke = new Stroke;
@@ -787,8 +811,6 @@ void Page::pressSelect(QMouseEvent *event)
 // places a new one.
 void Page::pressText(QMouseEvent *event)
 {
-    if (m_editing)
-        commitEditing();
     const QPointF world = toWorld(event->position());
     TextBox *box = qobject_cast<TextBox *>(itemAt(world));
     const bool isNew = !box;
@@ -812,6 +834,9 @@ void Page::startEditing(TextBox *box, bool isNew, const QPointF &localPress)
         if (m_editing == box && !box->isEditing())
             commitEditing(); // the box stopped editing itself (Esc)
     });
+    // The live text sits in the editor; the page redraws the box's overlay
+    // as its bounds follow the typing.
+    connect(box, &TextBox::boundsChanged, this, [this] { updateSelectionBox(); });
     box->startEdit(localPress);
 }
 
@@ -819,7 +844,7 @@ void Page::commitEditing()
 {
     TextBox *box = m_editing;
     m_editing = nullptr; // first: the stopEdit signal must not re-enter
-    disconnect(box, &TextBox::editingChanged, this, nullptr); // one per edit
+    disconnect(box, nullptr, this, nullptr); // the edit's two connections
     box->stopEdit();
     if (m_editingNew) {
         if (box->text().isEmpty()) {
@@ -830,7 +855,7 @@ void Page::commitEditing()
             m_undo->push(new AddItem(this, box)); // one step with its text
         }
     } else if (box->text() != m_editingBefore) {
-        m_undo->push(new SetText(box, m_editingBefore, box->text()));
+        m_undo->push(new SetText(this, box, m_editingBefore, box->text()));
     }
     m_editingNew = false;
 }

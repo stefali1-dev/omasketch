@@ -91,9 +91,10 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
         // While the path bar or a text box has focus, the keys belong to it:
         // not the tool keys, not the draw shortcuts, not Space — and the
         // path-bar shortcuts must not re-prefill over what is being typed.
-        // A text box being edited makes one exception: the path bar and
-        // fresh page commit the edit and then do their thing. Ctrl+Z/A/C/V
-        // stay in the box, where they are Qt's own text editing.
+        // A text box being edited makes two exceptions, both in the Ctrl
+        // branch below: the zoom keys (a view change, like the wheel) and
+        // the path bar / fresh page (they commit the edit, then act).
+        // Ctrl+Z/A/C/V stay in the box, where they are Qt's own editing.
         auto *focus = m_window ? m_window->activeFocusItem() : nullptr;
         if (focus && focus->flags().testFlag(QQuickItem::ItemAcceptsInputMethod)) {
             bool editing = false;
@@ -105,13 +106,17 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
             }
             if (!editing)
                 return QObject::eventFilter(watched, event);
-            const bool commitAndAct = !key->isAutoRepeat()
-                && (key->modifiers() & (Qt::ControlModifier | Qt::MetaModifier))
+            const bool shortcut = key->modifiers()
+                & (Qt::ControlModifier | Qt::MetaModifier);
+            const bool zoomKey = shortcut
+                && (key->key() == Qt::Key_Equal || key->key() == Qt::Key_Plus
+                    || key->key() == Qt::Key_Minus || key->key() == Qt::Key_0);
+            const bool commitAndAct = !key->isAutoRepeat() && shortcut
                 && (key->key() == Qt::Key_S || key->key() == Qt::Key_O
                     || key->key() == Qt::Key_N);
-            if (!commitAndAct)
+            if (!zoomKey && !commitAndAct)
                 return QObject::eventFilter(watched, event);
-            if (m_page)
+            if (commitAndAct && m_page)
                 m_page->commitEditing();
         }
         if (plain(key)) {

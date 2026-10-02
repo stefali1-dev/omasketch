@@ -74,9 +74,9 @@ TextBox::TextBox(QQuickItem *parent)
     setFlag(ItemHasContents);
     m_document->setDocumentMargin(0);
     applyFont();
-    // The paint node adds the document from the render thread; the layout
-    // must exist by then, or it is created lazily on the wrong thread and
-    // the first layout pass crashes.
+    // The paint node adds the document during the scene graph sync; the
+    // layout must exist by then, or it is created lazily inside the sync
+    // and the first layout pass crashes.
     m_document->documentLayout();
 }
 
@@ -140,6 +140,8 @@ QQuickItem *TextBox::ensureEditor()
     m_editor->setParent(this);     // ownership
     m_editor->setParentItem(this); // into the scene; focus needs a window
     m_editor->setPosition(QPointF(0, 0));
+    // Bounds follow the live text while editing.
+    connect(m_editor, SIGNAL(textChanged()), this, SIGNAL(boundsChanged()));
     // The accent caret, monkeytype-like; the component must outlive the
     // editor because the delegate item is created when the caret first shows.
     m_cursorDelegate = new QQmlComponent(engine, this);
@@ -222,7 +224,11 @@ void TextBox::scaleGeometry(qreal sx, qreal sy)
 
 QRectF TextBox::localBounds() const
 {
-    const QSizeF size = m_document->size();
+    // While editing the text lives in the editor; its implicit size is the
+    // laid-out content.
+    const QSizeF size = m_editing && m_editor
+        ? QSizeF(m_editor->implicitWidth(), m_editor->implicitHeight())
+        : m_document->size();
     const QFontMetricsF metrics(m_font);
     // An empty box still has a caret-sized area to click on.
     return QRectF(0, 0,

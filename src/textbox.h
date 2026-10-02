@@ -47,6 +47,9 @@ public:
 
 signals:
     void editingChanged();
+    // The live text changed the box's size while editing; the page keeps
+    // the selection box and hit tests on it.
+    void boundsChanged();
 
 protected:
     QRectF localBounds() const override;

@@ -102,7 +102,6 @@ qt_add_executable(tst_pathbar
     src/pathcompleter.h
 )
 target_include_directories(tst_pathbar PRIVATE src)
-target_link_libraries(tst_pathbar PRIVATE Qt6::Quick Qt6::Test)
 target_compile_definitions(tst_pathbar PRIVATE
     SRC_DIR="${CMAKE_CURRENT_LIST_DIR}/src")
 target_link_libraries(tst_pathbar PRIVATE Qt6::Quick Qt6::Test)

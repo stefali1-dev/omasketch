@@ -212,6 +212,12 @@ private slots:
     void typingIsFastWith200Boxes();
     void textBoxTypesInJetBrainsMono();
     void saveAndFreshPageCommitTheEdit();
+    void quitWhileEditingAnExistingBoxFreesItOnce();
+    void quitWhileEditingANewBoxFreesIt();
+    void emptyingAnExistingBoxRemovesItUndoable();
+    void boundsFollowTheLiveTextWhileEditing();
+    void selectToolClickAwayCommitsTheEdit();
+    void zoomKeysWorkWhileTyping();
 };
 
 void PageTest::drawShowsStrokeAndUndoRedoRemovesRestoresIt()
@@ -1389,6 +1395,143 @@ void PageTest::saveAndFreshPageCommitTheEdit()
     QCOMPARE(rig.page->items().size(), 1);
     QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
              QStringLiteral("abc"));
+}
+
+void PageTest::quitWhileEditingAnExistingBoxFreesItOnce()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    TextBox *box = placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    QTest::mouseDClick(&rig.window, Qt::LeftButton, {}, QPoint(208, 212));
+    QVERIFY(rig.page->editing());
+
+    // The committed box is owned by its AddItem on the stack; quitting must
+    // not free it a second time from the page.
+    bool freed = false;
+    QObject::connect(box, &QObject::destroyed, this, [&freed] { freed = true; });
+    delete rig.page;
+    rig.page = nullptr;
+    QVERIFY(freed);
+}
+
+void PageTest::quitWhileEditingANewBoxFreesIt()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(200, 200));
+    QVERIFY(rig.page->editing());
+    TextBox *box = rig.page->editing();
+
+    // The control: a box never committed has no other owner, so the page
+    // frees it.
+    bool freed = false;
+    QObject::connect(box, &QObject::destroyed, this, [&freed] { freed = true; });
+    delete rig.page;
+    rig.page = nullptr;
+    QVERIFY(freed);
+}
+
+void PageTest::emptyingAnExistingBoxRemovesItUndoable()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    QTest::mouseDClick(&rig.window, Qt::LeftButton, {}, QPoint(208, 212));
+    QVERIFY(rig.page->editing());
+    QTest::keyClick(&rig.window, Qt::Key_A, Qt::ControlModifier); // in the box
+    QTest::keyClick(&rig.window, Qt::Key_Backspace);
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+
+    QCOMPARE(rig.page->items().size(), 0); // an emptied box does not linger
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rig.page->items().size(), 1); // one step: box and text come back
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(rig.page->items().size(), 0);
+}
+
+void PageTest::boundsFollowTheLiveTextWhileEditing()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    TextBox *box = placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(225, 212)); // selects the box (first press)
+    const qreal widthBefore = box->bounds().width();
+    QTest::mouseDClick(&rig.window, Qt::LeftButton, {}, QPoint(225, 212));
+    QVERIFY(rig.page->editing());
+    const QRectF selectionBefore = rig.page->selectionRect();
+
+    type(rig.window, "cdef");
+    // The box grows as the text does: its bounds, the selection box around
+    // it and the page's itemAt all follow before the commit.
+    QVERIFY(box->bounds().width() > widthBefore + 30);
+    QVERIFY(rig.page->selectionRect().width() > selectionBefore.width() + 30);
+    QCOMPARE(rig.page->itemAt(QPointF(200 + widthBefore + 20, 210)),
+             static_cast<PageItem *>(box));
+    QVERIFY(rig.page->drawingBounds().width() > widthBefore + 30);
+
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(box->text(), QStringLiteral("abcdef"));
+}
+
+void PageTest::selectToolClickAwayCommitsTheEdit()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    placeBox(rig, QPointF(200, 200), QStringLiteral("ab"));
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    QTest::mouseDClick(&rig.window, Qt::LeftButton, {}, QPoint(208, 212));
+    QVERIFY(rig.page->editing());
+    type(rig.window, "x");
+
+    click(rig.window, QPointF(500, 400)); // away: commits like the text tool
+    QVERIFY(!rig.page->editing());
+    QCOMPARE(rig.tools.tool(), Tools::Select);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("axb"));
+}
+
+void PageTest::zoomKeysWorkWhileTyping()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(200, 200));
+    type(rig.window, "ab");
+
+    // Zooming is a view change: it never commits the edit, like the wheel.
+    QTest::keyClick(&rig.window, Qt::Key_Equal, Qt::ControlModifier);
+    QTest::qWait(300); // the step eases in
+    QCOMPARE(rig.page->zoom(), 1.25);
+    QVERIFY(rig.page->editing());
+    QTest::keyClick(&rig.window, Qt::Key_Minus, Qt::ControlModifier);
+    QTest::qWait(300);
+    QCOMPARE(rig.page->zoom(), 1.0);
+    QTest::keyClick(&rig.window, Qt::Key_Equal, Qt::ControlModifier);
+    QTest::qWait(300);
+    QCOMPARE(rig.page->zoom(), 1.25);
+    QTest::keyClick(&rig.window, Qt::Key_0, Qt::ControlModifier);
+    QTest::qWait(300);
+    QCOMPARE(rig.page->zoom(), 1.0);
+    QVERIFY(rig.page->editing());
+    type(rig.window, "-0"); // without Ctrl these are text
+
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.page->items().size(), 1);
+    QCOMPARE(static_cast<TextBox *>(rig.page->items().constFirst())->text(),
+             QStringLiteral("ab-0"));
 }
 
 QTEST_MAIN(PageTest)
