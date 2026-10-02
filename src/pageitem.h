@@ -44,6 +44,10 @@ public:
     virtual QColor color() const = 0;
     virtual void setColor(const QColor &color) = 0;
 
+    // Whether 1/2/3 recolour it; images say no and the page's recolour
+    // skips them.
+    virtual bool recolourable() const { return true; }
+
     // Multiplies the local geometry by (sx, sy) about the item's origin and
     // rebuilds it once. Never call this per frame: a drag sets visualScale
     // instead.

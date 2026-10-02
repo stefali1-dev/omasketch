@@ -6,11 +6,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Gui Qml Quick Test)
+find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
 qt_standard_project_setup()
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
 
 qt_add_executable(omasketch
+    src/files.cpp
+    src/files.h
+    src/imageitem.cpp
+    src/imageitem.h
     src/main.cpp
     src/page.cpp
     src/page.h
@@ -37,11 +42,13 @@ qt_add_qml_module(omasketch
         src/Toast.qml
 )
 
-target_link_libraries(omasketch PRIVATE Qt6::Quick Qt6::Gui)
+target_link_libraries(omasketch PRIVATE Qt6::Quick Qt6::Gui Qt6::GuiPrivate)
 target_include_directories(omasketch PRIVATE src)
 
 # The tests need a page too; the QML module itself only matters for the app.
 set(OMASKETCH_PAGE_SOURCES
+    src/imageitem.cpp
+    src/imageitem.h
     src/page.cpp
     src/page.h
     src/pageitem.h
@@ -74,9 +81,11 @@ target_link_libraries(tst_page PRIVATE Qt6::Quick Qt6::Gui Qt6::Test)
 qt_add_executable(tst_app
     tests/tst_app.cpp
     ${OMASKETCH_PAGE_SOURCES}
+    src/files.cpp
+    src/files.h
 )
 target_include_directories(tst_app PRIVATE src)
-target_link_libraries(tst_app PRIVATE Qt6::Quick Qt6::Gui Qt6::Test)
+target_link_libraries(tst_app PRIVATE Qt6::Quick Qt6::Gui Qt6::GuiPrivate Qt6::Test)
 qt_add_qml_module(tst_app
     URI Omasketch
     VERSION 1.0
@@ -86,6 +95,16 @@ qt_add_qml_module(tst_app
         src/PathBar.qml
         src/Toast.qml
 )
+
+# Saving, opening, the clipboard and image items.
+qt_add_executable(tst_files
+    tests/tst_files.cpp
+    ${OMASKETCH_PAGE_SOURCES}
+    src/files.cpp
+    src/files.h
+)
+target_include_directories(tst_files PRIVATE src)
+target_link_libraries(tst_files PRIVATE Qt6::Quick Qt6::Gui Qt6::GuiPrivate Qt6::Test)
 
 # Frame-time harness, run by hand on the real display; not a ctest.
 qt_add_executable(bench_frames
@@ -117,6 +136,10 @@ set_tests_properties(page PROPERTIES
 )
 add_test(NAME app COMMAND tst_app)
 set_tests_properties(app PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=gl"
+)
+add_test(NAME files COMMAND tst_files)
+set_tests_properties(files PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=gl"
 )
 add_test(NAME pathbar COMMAND tst_pathbar)

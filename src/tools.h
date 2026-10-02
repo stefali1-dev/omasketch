@@ -43,6 +43,10 @@ signals:
     void inkChanged();
     // Ctrl+Shift+S / Ctrl+O (Super arrives as either Ctrl or Meta).
     void pathBarRequested(const QString &mode);
+    // Ctrl+S / Ctrl+C / Ctrl+V (main.cpp wires these to Files).
+    void saveRequested();
+    void copyRequested();
+    void pasteRequested();
 
 private:
     void setTool(Tool tool);

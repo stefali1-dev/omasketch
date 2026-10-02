@@ -1,11 +1,15 @@
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QGuiApplication>
+#include <QMetaObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QSurfaceFormat>
+#include <QVariant>
 #include <cstdio>
 
+#include "files.h"
 #include "palette.h"
 #include "page.h"
 #include "pathcompleter.h"
@@ -50,18 +54,40 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("completer", &completer);
     Tools tools;
     engine.rootContext()->setContextProperty("tools", &tools);
+    Files files;
+    engine.rootContext()->setContextProperty("files", &files);
     engine.loadFromModule("Omasketch", "Main");
     if (engine.rootObjects().isEmpty())
         return 1;
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     tools.attach(window);
-    if (auto *page = pageIn(window))
+    if (auto *page = pageIn(window)) {
         tools.setPage(page);
-    else
+        files.setPage(page);
+    } else {
         qWarning("omasketch: Main.qml has no Page");
+    }
 
-    // The path bar connects its confirmed signal to the toast in QML
-    // (Loader.onLoaded in Main.qml); the later files task connects it in C++.
+    // Files: the shortcuts, toasts, autosave on close, and the open file
+    // from the command line once the first frame is up. The path bar's
+    // confirmations arrive through Main.qml (Loader.onLoaded).
+    QObject::connect(&tools, &Tools::saveRequested, &files, &Files::save);
+    QObject::connect(&tools, &Tools::copyRequested, &files, &Files::copySelection);
+    QObject::connect(&tools, &Tools::pasteRequested, &files, &Files::paste);
+    QObject::connect(&files, &Files::toastRequested, window,
+                     [window](const QString &message) {
+                         if (auto *toast = window->findChild<QObject *>("toast"))
+                             QMetaObject::invokeMethod(toast, "show",
+                                                       Q_ARG(QVariant, message));
+                     });
+    QObject::connect(window, &QQuickWindow::closing, &files, &Files::appClosing);
+    if (argc > 1) {
+        const QString path = QFileInfo(QGuiApplication::arguments().constLast())
+                                 .absoluteFilePath();
+        QObject::connect(window, &QQuickWindow::frameSwapped, &files,
+                         [&files, path] { files.openFile(path); },
+                         Qt::SingleShotConnection);
+    }
 
     if (qEnvironmentVariableIsSet("OMASKETCH_TIMING")) {
         QObject::connect(window, &QQuickWindow::frameSwapped, window, [&] {

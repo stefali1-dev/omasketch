@@ -12,6 +12,7 @@
 #include <QWheelEvent>
 #include <QtMath>
 
+#include "imageitem.h"
 #include "pageitem.h"
 #include "palette.h"
 #include "selection.h"
@@ -304,7 +305,7 @@ void Page::setInk(Tools::Ink ink)
     QList<PageItem *> changed;
     QList<QColor> from;
     for (PageItem *item : m_selection) {
-        if (item->color() != color) {
+        if (item->recolourable() && item->color() != color) {
             changed.append(item);
             from.append(item->color());
         }
@@ -437,6 +438,16 @@ void Page::restoreItem(PageItem *item, int index)
     const int at = m_items.indexOf(item);
     if (at + 1 < m_items.size())
         item->stackBefore(m_items[at + 1]);
+}
+
+void Page::addImage(const QImage &image, const QPointF &worldPos, QSizeF size)
+{
+    if (image.isNull() || m_stroke || m_drag != Drag::None)
+        return;
+    auto *item = new ImageItem;
+    item->setImage(image, size.isValid() ? size : QSizeF(image.size()));
+    item->setPosition(worldPos);
+    m_undo->push(new AddItem(this, item)); // redo re-adds it: a no-op
 }
 
 QRectF Page::drawingBounds() const

@@ -5,8 +5,13 @@
 #include <QtQuick/QQuickWindow>
 #include <QtQml/QQmlApplicationEngine>
 #include <QtQml/QQmlContext>
+#include <QDir>
+#include <QElapsedTimer>
+#include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest>
 
+#include "files.h"
 #include "palette.h"
 #include "page.h"
 #include "pageitem.h"
@@ -92,6 +97,7 @@ private slots:
     void mainQmlWiresThePageAndDraws();
     void selectFlowThroughMainQml();
     void textFlowThroughMainQml();
+    void saveFlowThroughMainQml();
 };
 
 void AppTest::mainQmlWiresThePageAndDraws()
@@ -225,6 +231,53 @@ void AppTest::textFlowThroughMainQml()
 
     QTest::keyClick(window, Qt::Key_Escape);
     QCOMPARE(tools.tool(), Tools::Select);
+}
+
+void AppTest::saveFlowThroughMainQml()
+{
+    // Ctrl+S through the real Main.qml: the shortcut reaches Files, the
+    // drawing lands in HOME/Pictures/Drawings and the toast is asked for.
+    QTemporaryDir home;
+    QVERIFY(home.isValid());
+    qputenv("HOME", home.path().toUtf8());
+
+    Tools tools;
+    Files files;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("Colors", paletteMap());
+    engine.rootContext()->setContextProperty("tools", &tools);
+    engine.rootContext()->setContextProperty("files", &files);
+    engine.loadFromModule("Omasketch", "Main");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    QVERIFY(window);
+    tools.attach(window);
+    Page *page = pageIn(window);
+    QVERIFY(page);
+    tools.setPage(page);
+    files.setPage(page);
+    QObject::connect(&tools, &Tools::saveRequested, &files, &Files::save);
+
+    // Wait for the first rendered frame, so the render thread is settled
+    // before the save renders offscreen.
+    bool frameDone = false;
+    QObject::connect(window, &QQuickWindow::frameSwapped, window,
+                     [&] { frameDone = true; }, Qt::SingleShotConnection);
+    QElapsedTimer waited;
+    waited.start();
+    while (!frameDone && waited.elapsed() < 2000)
+        QTest::qWait(10);
+    QTest::keyClick(window, Qt::Key_D);
+    draw(*window, {{100, 300}, {150, 300}, {200, 300}, {250, 300}, {300, 300}});
+
+    QSignalSpy toast(&files, &Files::toastRequested);
+    QTest::keyClick(window, Qt::Key_S, Qt::ControlModifier);
+
+    const QStringList saved = QDir(home.filePath("Pictures/Drawings"))
+                                  .entryList(QDir::Files);
+    QCOMPARE(saved.size(), 1);
+    QCOMPARE(toast.size(), 1);
+    QVERIFY(toast.constFirst().constFirst().toString().startsWith("saved → ~/"));
 }
 
 QTEST_MAIN(AppTest)

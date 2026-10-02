@@ -154,7 +154,11 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
             case Qt::Key_S:
                 if (key->modifiers() & Qt::ShiftModifier)
                     emit pathBarRequested(QStringLiteral("save"));
+                else
+                    emit saveRequested();
                 break;
+            case Qt::Key_C:     emit copyRequested();   break;
+            case Qt::Key_V:     emit pasteRequested();  break;
             case Qt::Key_O:
                 emit pathBarRequested(QStringLiteral("open"));
                 break;

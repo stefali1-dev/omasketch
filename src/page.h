@@ -1,8 +1,10 @@
 #pragma once
 
 #include <QColor>
+#include <QImage>
 #include <QList>
 #include <QQuickItem>
+#include <QUndoStack>
 #include <QtQml/qqml.h>
 
 #include "tools.h"
@@ -55,10 +57,22 @@ public:
     // Introspection for the tests and the frame-time bench.
     qreal zoom() const { return m_zoom; }
     QPointF worldPos() const { return m_world->position(); }
+    QPointF mouse() const { return m_mouse; } // last cursor position, page coords
+    QQuickItem *worldItem() const { return m_world; }
     QRectF drawingBounds() const;
     QList<PageItem *> items() const { return m_items; }
     QList<PageItem *> selection() const { return m_selection; }
     QRectF selectionRect() const; // page coordinates; invalid when empty
+
+    // Undo-bookkeeping for the save flow: "unsaved" is an unclean stack,
+    // and saving marks it clean.
+    bool isClean() const { return m_undo->isClean(); }
+    void markClean() { m_undo->setClean(); }
+
+    // Places a decoded image (open, paste, drop) as an undoable image item
+    // with its top-left at worldPos; an invalid size keeps the 1:1 pixel size.
+    void addImage(const QImage &image, const QPointF &worldPos,
+                  QSizeF size = QSizeF());
 
     // Selection changes are not undo steps; the content commands are.
     void setSelection(const QList<PageItem *> &items); // programmatic; the bench uses it

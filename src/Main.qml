@@ -41,10 +41,20 @@ Window {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 60
-        // The confirmed path shows as toast text until the later files
-        // task connects the signal in C++.
+        // The confirmed path goes to Files (main.cpp wires the context
+        // property), which saves or opens and shows the result as a toast.
         onLoaded: item.confirmed.connect(
-            (path, mode) => toast.show(mode + " → " + completer.shorten(path)))
+            (path, mode) => files.confirm(path, mode))
+    }
+
+    // A PNG dropped from a file manager joins the page as an image item.
+    DropArea {
+        anchors.fill: parent
+        onDropped: (drop) => {
+            for (const url of drop.urls)
+                if (url.toString().endsWith(".png"))
+                    files.openDrop(url)
+        }
     }
 
     Connections {
