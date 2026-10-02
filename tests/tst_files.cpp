@@ -6,6 +6,8 @@
 #include <QtGui/QMouseEvent>
 #include <QtGui/QPainter>
 #include <QtGui/QWheelEvent>
+#include <QtQuick/QQuickRenderControl>
+#include <rhi/qrhi.h>
 #include <QtQuick/QQuickWindow>
 #include <QtQml/QQmlContext>
 #include <QtQml/QQmlEngine>
@@ -20,6 +22,7 @@
 #include "imageitem.h"
 #include "palette.h"
 #include "page.h"
+#include "stroke.h"
 #include "textbox.h"
 #include "tools.h"
 
@@ -152,6 +155,7 @@ private slots:
     void ctrlSChoosesADefaultPathThenOverwritesIt();
     void saveAsMovesTheTarget();
     void emptyPageWritesNothing();
+    void exportBeyondTheTextureLimitCapsTheScale();
     void openPlacesTheImageCentredAndUndoable();
     void openShrinksABiggerImageToFit();
     void hugeImagesLoadDecimated();
@@ -260,6 +264,60 @@ void FilesTest::saveAsMovesTheTarget()
     QCOMPARE(rig.files.saveTarget(), path);
     QVERIFY(!QDir(m_home.filePath("Pictures/Drawings")).exists());
     QVERIFY(rig.page->isClean());
+}
+
+// A stroke impossibly far out used to fail the whole save: the export's
+// render target exceeded the device's largest texture and came back empty.
+// The scale now caps so the longest side fits, and the page saves smaller.
+void FilesTest::exportBeyondTheTextureLimitCapsTheScale()
+{
+    freshHome();
+    Rig rig;
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 300}, {150, 300}, {200, 300}});
+    Stroke *far = new Stroke;
+    far->setColor(palette::ink);
+    far->setStrokeWidth(2.75);
+    far->begin(QPointF(50000, 400));
+    far->addPoint(QPointF(50040, 400));
+    rig.page->addItem(far);
+
+    QSignalSpy toast(&rig.files, &Files::toastRequested);
+    rig.files.save();
+    QCOMPARE(toast.size(), 1);
+    QVERIFY(toast.constFirst().constFirst().toString().startsWith("saved → ~/"));
+
+    QQuickRenderControl probe;
+    QQuickWindow probeWindow(&probe);
+    QVERIFY(probe.initialize());
+    const int limit = probe.rhi()->resourceLimit(QRhi::TextureSizeMax);
+
+    const QStringList names = savedNames(m_home);
+    QCOMPARE(names.size(), 1);
+    const QImage png(QDir(m_home.filePath("Pictures/Drawings"))
+                         .filePath(names.constFirst()));
+    QVERIFY(!png.isNull());
+    QVERIFY(png.width() <= limit);
+    QVERIFY(png.height() > 0);
+    // The cap shrinks the whole export, it does not crop the far stroke
+    // away: both strokes' ink is where the shrink puts it (within a
+    // couple of pixels; a 2.75 px stroke is under 1 px at this scale).
+    const QRectF bounds = rig.page->drawingBounds();
+    const qreal scale = png.width() / qreal(bounds.width() + 2 * kExportMargin);
+    QVERIFY(scale < 1.0);
+    const auto worldInPng = [&bounds, scale](qreal x, qreal y) {
+        return QPoint(qRound((x - bounds.left()) * scale + kExportMargin * scale),
+                      qRound((y - bounds.top()) * scale + kExportMargin * scale));
+    };
+    const auto inkNear = [&png](QPoint p) {
+        for (int dy = -2; dy <= 2; ++dy)
+            for (int dx = -2; dx <= 2; ++dx)
+                if (png.pixelColor(p + QPoint(dx, dy)) != palette::page)
+                    return true;
+        return false;
+    };
+    QVERIFY(inkNear(worldInPng(150, 300)));
+    QVERIFY(inkNear(worldInPng(50020, 400)));
 }
 
 void FilesTest::emptyPageWritesNothing()

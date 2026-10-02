@@ -23,10 +23,18 @@ QImage renderWorldToImage(QQuickItem *world, const QRectF &worldRect, qreal scal
     QQuickRenderControl control;
     QQuickWindow window(&control);
     window.setColor(palette::page);
-    const QSize size(qCeil(worldRect.width() * scale), qCeil(worldRect.height() * scale));
-    window.setGeometry(0, 0, size.width(), size.height());
     if (!control.initialize())
         return {};
+    QRhi *rhi = control.rhi();
+
+    // The render target must fit the device's largest texture: a page
+    // longer than that saves at a lower resolution instead of failing
+    // (an uncreateable renderbuffer or texture returns an empty image).
+    scale = qMin(scale, qreal(rhi->resourceLimit(QRhi::TextureSizeMax))
+                            / qMax(worldRect.width(), worldRect.height()));
+
+    const QSize size(qCeil(worldRect.width() * scale), qCeil(worldRect.height() * scale));
+    window.setGeometry(0, 0, size.width(), size.height());
 
     // The frame goes into a multisample renderbuffer when the RHI supports
     // it (the screen antialiases too), resolved into a plain texture that
@@ -34,7 +42,6 @@ QImage renderWorldToImage(QQuickItem *world, const QRectF &worldRect, qreal scal
     // target itself. Declared after window and control, so they die first:
     // the RHI stays alive while its resources are destroyed, in the reverse
     // of this order.
-    QRhi *rhi = control.rhi();
     const int samples = rhi->supportedSampleCounts().contains(4) ? 4 : 1;
     QRhiRenderBuffer *msaa = nullptr;
     if (samples > 1) {
