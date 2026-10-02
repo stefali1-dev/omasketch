@@ -9,7 +9,17 @@ Window {
     title: "omasketch"
 
     Page {
+        id: page
         anchors.fill: parent
+    }
+
+    // A click on the page leaves the path bar, like Esc does.
+    Connections {
+        target: page
+        function onPressed() {
+            if (pathBarLoader.active)
+                pathBarLoader.item.hide()
+        }
     }
 
     Text {

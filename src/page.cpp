@@ -516,6 +516,7 @@ void Page::mousePressEvent(QMouseEvent *event)
     killAnim();
     if (event->button() != Qt::LeftButton || m_drawing)
         return;
+    emit pressed();
     if (m_spaceHeld) {
         m_panning = true;
         m_panGrab = event->position();

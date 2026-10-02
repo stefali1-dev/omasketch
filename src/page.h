@@ -115,6 +115,9 @@ signals:
     // A fresh page threw everything away (undoable); the old content's save
     // target no longer fits what is on the page now.
     void freshPage();
+    // A click landed on the page (the page handles every click); Main.qml
+    // closes the path bar on it, like Esc.
+    void pressed();
 
 protected:
     void hoverMoveEvent(QHoverEvent *event) override;

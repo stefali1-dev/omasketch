@@ -101,6 +101,7 @@ private slots:
     void closeAutosavesThroughMainQml();
     void arrowFlowThroughMainQml();
     void toastHidesTheToolLabel();
+    void pageClickClosesThePathBar();
 };
 
 void AppTest::mainQmlWiresThePageAndDraws()
@@ -420,6 +421,45 @@ void AppTest::toastHidesTheToolLabel()
     QTest::qWait(300); // the toast fades in (120 ms), the label out (150 ms)
     QCOMPARE(toast->property("opacity").toDouble(), 1.0);
     QCOMPARE(label->property("opacity").toDouble(), 0.0);
+}
+
+// Clicking the page while the path bar is open leaves it, like Esc: the
+// plain keys must not keep typing into the bar after the click.
+void AppTest::pageClickClosesThePathBar()
+{
+    QTemporaryDir home;
+    QVERIFY(home.isValid());
+    qputenv("HOME", home.path().toUtf8());
+
+    Tools tools;
+    Files files;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("Colors", paletteMap());
+    engine.rootContext()->setContextProperty("tools", &tools);
+    engine.rootContext()->setContextProperty("files", &files);
+    engine.loadFromModule("Omasketch", "Main");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    QVERIFY(window);
+    tools.attach(window);
+    Page *page = pageIn(window);
+    QVERIFY(page);
+    tools.setPage(page);
+    files.setPage(page);
+
+    QTest::keyClick(window, Qt::Key_O, Qt::ControlModifier); // open the bar
+    // Loader has no public C++ class; the QML properties carry everything.
+    QObject *loader = window->findChild<QObject *>("pathBarLoader");
+    QVERIFY(loader);
+    QCOMPARE(loader->property("active").toBool(), true);
+    auto *bar = qobject_cast<QQuickItem *>(
+        loader->property("item").value<QObject *>());
+    QVERIFY(bar);
+    QCOMPARE(bar->property("shown").toBool(), true);
+
+    mouse(*window, QEvent::MouseButtonPress, QPointF(400, 200));
+    mouse(*window, QEvent::MouseButtonRelease, QPointF(400, 200));
+    QCOMPARE(bar->property("shown").toBool(), false);
 }
 
 QTEST_MAIN(AppTest)
