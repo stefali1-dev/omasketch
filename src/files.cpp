@@ -204,7 +204,7 @@ void Files::paste()
     // Top-left at the mouse, so the image lands where the eye is; one
     // bigger than the view shrinks to fit, like an open.
     const QSizeF size = displayedSize(clipboard, m_page);
-    const QPointF world = m_page->worldPos() + m_page->mouse() / m_page->zoom();
+    const QPointF world = m_page->toWorld(m_page->mouse());
     const QImage image = atScreenResolution(clipboard, size, m_page);
     m_page->addImage(image, world, size);
 }
@@ -264,8 +264,8 @@ void Files::openImage(const QImage &decoded)
     // 1:1 logical size, shrunk to fit and centred in the view (a little air
     // around it when it has to shrink).
     const QSizeF size = displayedSize(decoded, m_page);
-    const QPointF viewCentre((m_page->width() / 2 - m_page->worldPos().x()) / m_page->zoom(),
-                             (m_page->height() / 2 - m_page->worldPos().y()) / m_page->zoom());
+    const QPointF viewCentre = m_page->toWorld(
+        QPointF(m_page->width() / 2, m_page->height() / 2));
     const QImage image = atScreenResolution(decoded, size, m_page);
     m_page->addImage(image, viewCentre - QPointF(size.width(), size.height()) / 2, size);
 }

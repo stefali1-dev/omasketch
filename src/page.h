@@ -96,6 +96,10 @@ public:
     // The topmost item within a few screen pixels of the world point.
     PageItem *itemAt(const QPointF &worldPos) const;
 
+    // The world point under a page position: the pan+zoom, inverted. This is
+    // the one world mapping; nothing re-derives it.
+    QPointF toWorld(const QPointF &pagePos) const;
+
     // Undo plumbing; the QUndoCommand classes in page.cpp call these.
     void addItem(PageItem *item);
     void removeItem(PageItem *item);
@@ -122,7 +126,6 @@ protected:
 private:
     enum class Drag { None, Marquee, Move, Resize, Erase };
 
-    QPointF toWorld(const QPointF &pagePos) const;
     QRectF mapFromWorld(const QRectF &worldRect) const;
     QRectF worldSelectionBounds() const;
     void updateSelectionBox();

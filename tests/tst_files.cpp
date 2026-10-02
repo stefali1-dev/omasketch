@@ -160,6 +160,7 @@ private slots:
     void openShrinksABiggerImageToFit();
     void hugeImagesLoadDecimated();
     void clipboardRoundTrip();
+    void pasteLandsAtTheMouseWhereverTheViewSits();
     void imageItemMovesResizesErasesUndoes();
     void recolourSkipsImages();
     void startupOpenLeavesThePageClean();
@@ -448,6 +449,30 @@ void FilesTest::clipboardRoundTrip()
     // The copied PNG pastes back as an image item.
     rig.files.paste();
     QCOMPARE(rig.page->items().size(), 2);
+}
+
+void FilesTest::pasteLandsAtTheMouseWhereverTheViewSits()
+{
+    freshHome();
+    Rig rig;
+    QImage source(64, 48, QImage::Format_ARGB32);
+    source.fill(Qt::red);
+    QGuiApplication::clipboard()->setImage(source);
+
+    // Panned and zoomed: the top-left must be the world point under the
+    // mouse, which is (mouse - worldPos) / zoom, not worldPos + mouse/zoom.
+    wheel(rig.window, QPointF(320, 240), QPoint(0, 120));
+    wheel(rig.window, QPointF(320, 240), QPoint(0, 120), Qt::ControlModifier);
+    QCOMPARE(rig.page->zoom(), 1.25);
+    hover(rig.window, QPointF(200, 200));
+    rig.files.paste();
+
+    QCOMPARE(rig.page->items().size(), 1);
+    PageItem *image = rig.page->items().constFirst();
+    const QPointF expected = (QPointF(200, 200) - rig.page->worldPos())
+                                 / rig.page->zoom();
+    QCOMPARE(image->position(), expected);
+    QCOMPARE(image->size(), QSizeF(64, 48));
 }
 
 void FilesTest::imageItemMovesResizesErasesUndoes()
