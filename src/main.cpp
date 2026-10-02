@@ -37,6 +37,12 @@ int main(int argc, char *argv[])
     if (!qEnvironmentVariableIsSet("QSG_RHI_BACKEND"))
         QQuickWindow::setGraphicsApi(QSGRendererInterface::GraphicsApi::VulkanRhi);
 
+    // The look is fixed (palette.h, decisions.md) and there are no dialogs:
+    // the host GTK theme plugin would only slow startup down (dlopen + GTK
+    // init, ~50 ms to the first frame here). Fonts and colours are all set
+    // by the app, so nothing on screen depends on it. IMEs are unaffected.
+    qputenv("QT_QPA_PLATFORMTHEME", "");
+
     // Multisampling smooths the stroke edges; the frame-time bench measures
     // what it costs.
     QSurfaceFormat format;
