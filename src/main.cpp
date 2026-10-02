@@ -39,6 +39,12 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationName("omasketch");
     QGuiApplication::setDesktopFileName("omasketch");
 
+    // The objects the QML binds to are declared before the engine, so they
+    // are destroyed after it: QML teardown on close must not read a dead
+    // context property (Main.qml's `tools.toolName`).
+    PathCompleter completer;
+    Tools tools;
+    Files files;
     QQmlApplicationEngine engine;
     // Named "Colors" rather than "Palette": QtQuick has its own Palette
     // type, which would shadow a context property of that name.
@@ -50,11 +56,8 @@ int main(int argc, char *argv[])
         {"ui",     palette::ui},
         {"accent", palette::accent},
     });
-    PathCompleter completer;
     engine.rootContext()->setContextProperty("completer", &completer);
-    Tools tools;
     engine.rootContext()->setContextProperty("tools", &tools);
-    Files files;
     engine.rootContext()->setContextProperty("files", &files);
     engine.loadFromModule("Omasketch", "Main");
     if (engine.rootObjects().isEmpty())

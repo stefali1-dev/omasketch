@@ -444,7 +444,7 @@ void Page::restoreItem(PageItem *item, int index)
 
 void Page::addImage(const QImage &image, const QPointF &worldPos, QSizeF size)
 {
-    if (image.isNull() || m_stroke || m_drag != Drag::None)
+    if (image.isNull() || m_drawing || m_drag != Drag::None)
         return;
     auto *item = new ImageItem;
     item->setImage(image, size.isValid() ? size : QSizeF(image.size()));

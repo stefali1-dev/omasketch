@@ -180,6 +180,8 @@ void FilesTest::exportCropsToTheDrawingWhereverTheViewSits()
     Rig rig;
     QTest::keyClick(&rig.window, Qt::Key_D);
     draw(rig.window, {{100, 300}, {150, 300}, {200, 300}, {250, 300}, {300, 300}});
+    QTest::keyClick(&rig.window, Qt::Key_A);
+    draw(rig.window, {{100, 320}, {300, 320}});
     const QRectF bounds = rig.page->drawingBounds();
     QVERIFY(bounds.isValid());
 
@@ -206,10 +208,15 @@ void FilesTest::exportCropsToTheDrawingWhereverTheViewSits()
                          qCeil(bounds.height() + 2 * kExportMargin));
     QCOMPARE(png.size(), expected);
 
-    // The stroke's centre is ink; the margin stays white.
-    const QPointF ink(bounds.center().x() - bounds.left() + kExportMargin,
-                      bounds.center().y() - bounds.top() + kExportMargin);
-    QCOMPARE(pngPixel(path, ink.toPoint()), palette::ink);
+    // Stroke and arrow (shaft and head alike) are ink in the PNG; the
+    // margin stays white.
+    const auto worldInPng = [&bounds](qreal x, qreal y) {
+        return QPoint(qRound(x - bounds.left() + kExportMargin),
+                      qRound(y - bounds.top() + kExportMargin));
+    };
+    QCOMPARE(pngPixel(path, worldInPng(200, 300)), palette::ink); // the stroke
+    QCOMPARE(pngPixel(path, worldInPng(200, 320)), palette::ink); // arrow shaft
+    QCOMPARE(pngPixel(path, worldInPng(294, 320)), palette::ink); // arrow head
     QCOMPARE(pngPixel(path, {0, 0}), palette::page);
     QCOMPARE(pngPixel(path, {png.width() - 1, png.height() - 1}), palette::page);
 }
