@@ -662,12 +662,12 @@ void Page::mouseReleaseEvent(QMouseEvent *event)
 
 void Page::wheelEvent(QWheelEvent *event)
 {
-    if (m_drawing || m_panning)
+    // Nothing moves the world under a held drag: a stroke draws in world
+    // points, and a move or resize drag would carry or jump.
+    if (m_drawing || m_panning || m_drag != Drag::None)
         return;
     const Qt::KeyboardModifiers mods = event->modifiers();
     if (mods & (Qt::ControlModifier | Qt::MetaModifier)) {
-        if (m_drag != Drag::None)
-            return; // zooming mid-drag shifts the world under the drag
         // Super+scroll arrives as Ctrl+wheel, one 120-notch per step.
         setZoomAt(m_zoom * qPow(kZoomStep, event->angleDelta().y() / 120.0),
                   event->position());

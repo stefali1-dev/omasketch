@@ -221,6 +221,7 @@ private slots:
     void undoOfEraseRestoresTheStackingOrder();
     void startingAMarqueeHidesTheOldBoxAtOnce();
     void zoomIsBlockedMidDrag();
+    void wheelPanIsBlockedMidDrag();
     void textToolPlacesAndTypesAndStays();
     void toolKeysGoIntoTheText();
     void escapeTwiceReturnsToSelect();
@@ -1210,6 +1211,32 @@ void PageTest::zoomIsBlockedMidDrag()
     QCOMPARE(rig.page->zoom(), 1.0);
     pinch(rig.window, QPointF(320, 240), 0.05);
     QCOMPARE(rig.page->zoom(), 1.0);
+    mouse(rig.window, QEvent::MouseButtonRelease, QPointF(180, 250));
+    QCOMPARE(rig.page->items().constFirst()->position(), QPointF(30, 0));
+}
+
+// A plain wheel or trackpad pan mid-drag used to carry the world (dragged
+// items included) until the next pointer move, then snap it back.
+void PageTest::wheelPanIsBlockedMidDrag()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    draw(rig.window, {{100, 250}, {150, 250}, {200, 250}, {250, 250}, {300, 250}});
+    QTest::keyClick(&rig.window, Qt::Key_V);
+    click(rig.window, QPointF(150, 250));
+
+    mouse(rig.window, QEvent::MouseButtonPress, QPointF(150, 250));
+    mouse(rig.window, QEvent::MouseMove, QPointF(180, 250));
+    const QPointF world = rig.page->worldPos();
+    wheel(rig.window, QPointF(320, 240), QPoint(0, 120)); // one notch
+    QCOMPARE(rig.page->worldPos(), world);
+    QWheelEvent touchpad(QPointF(320, 240), QPointF(320, 240), QPoint(0, 10),
+                         QPoint(), Qt::NoButton, Qt::NoModifier,
+                         Qt::NoScrollPhase, false);
+    QGuiApplication::sendEvent(&rig.window, &touchpad);
+    QCOMPARE(rig.page->worldPos(), world);
     mouse(rig.window, QEvent::MouseButtonRelease, QPointF(180, 250));
     QCOMPARE(rig.page->items().constFirst()->position(), QPointF(30, 0));
 }
