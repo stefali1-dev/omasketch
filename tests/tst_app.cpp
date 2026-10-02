@@ -2,7 +2,7 @@
 // main.cpp does, which the hand-built pages in tst_page never exercise. This
 // is where "Main.qml has no Page" regressed once.
 #include <QtGui/QMouseEvent>
-#include <QtQuick/QQuickWindow>
+#include <QtQuick/qquickwindow.h>
 #include <QtQml/QQmlApplicationEngine>
 #include <QtQml/QQmlContext>
 #include <QDir>
@@ -100,6 +100,7 @@ private slots:
     void saveFlowThroughMainQml();
     void closeAutosavesThroughMainQml();
     void arrowFlowThroughMainQml();
+    void toastHidesTheToolLabel();
 };
 
 void AppTest::mainQmlWiresThePageAndDraws()
@@ -363,6 +364,62 @@ void AppTest::arrowFlowThroughMainQml()
     QCOMPARE(page->items().size(), 1);
     QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
     QCOMPARE(page->items().size(), 2);
+}
+
+
+// The toast and the tool label sit on the same bottom-centre spot: while a
+// toast shows, the label steps aside.
+void AppTest::toastHidesTheToolLabel()
+{
+    QTemporaryDir home;
+    QVERIFY(home.isValid());
+    qputenv("HOME", home.path().toUtf8());
+
+    Tools tools;
+    Files files;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("Colors", paletteMap());
+    engine.rootContext()->setContextProperty("tools", &tools);
+    engine.rootContext()->setContextProperty("files", &files);
+    engine.loadFromModule("Omasketch", "Main");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    QVERIFY(window);
+    tools.attach(window);
+    Page *page = pageIn(window);
+    QVERIFY(page);
+    tools.setPage(page);
+    files.setPage(page);
+    // The toast plumbing main.cpp sets; without it the QML never hears one.
+    QObject::connect(&files, &Files::toastRequested, window,
+                     [window](const QString &message) {
+                         if (auto *toast = window->findChild<QObject *>("toast"))
+                             QMetaObject::invokeMethod(toast, "show",
+                                                       Q_ARG(QVariant, message));
+                     });
+
+    QTest::keyClick(window, Qt::Key_D); // a tool change shows the label
+    auto *label = window->findChild<QQuickItem *>("toolLabel");
+    QVERIFY(label);
+    QTest::qWait(200); // the label's 150 ms fade in
+    QCOMPARE(label->property("opacity").toDouble(), 1.0);
+
+    draw(*window, {{100, 300}, {150, 300}, {200, 300}});
+    // The render thread must be up before a save renders offscreen.
+    bool frameDone = false;
+    QObject::connect(window, &QQuickWindow::frameSwapped, window,
+                     [&] { frameDone = true; }, Qt::SingleShotConnection);
+    QElapsedTimer waited;
+    waited.start();
+    while (!frameDone && waited.elapsed() < 2000)
+        QTest::qWait(10);
+    files.save();
+
+    auto *toast = window->findChild<QQuickItem *>("toast");
+    QVERIFY(toast);
+    QTest::qWait(300); // the toast fades in (120 ms), the label out (150 ms)
+    QCOMPARE(toast->property("opacity").toDouble(), 1.0);
+    QCOMPARE(label->property("opacity").toDouble(), 0.0);
 }
 
 QTEST_MAIN(AppTest)

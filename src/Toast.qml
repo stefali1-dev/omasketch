@@ -7,6 +7,10 @@ Text {
     id: toast
     objectName: "toast"
 
+    // Fires when a message appears, so whatever shares this spot (the tool
+    // label) can step aside.
+    signal shown()
+
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.bottom: parent.bottom
     anchors.bottomMargin: 24
@@ -32,6 +36,7 @@ Text {
         toast.fadeMs = toast.fadeInMs
         toast.opacity = 1
         hold.restart()
+        toast.shown()
     }
 
     Timer {

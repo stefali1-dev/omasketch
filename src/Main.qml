@@ -14,6 +14,7 @@ Window {
 
     Text {
         id: toolLabel
+        objectName: "toolLabel"
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 32
@@ -66,6 +67,16 @@ Window {
         function onPathBarRequested(mode) {
             pathBarLoader.active = true
             pathBarLoader.item.show(mode)
+        }
+    }
+
+    // The toast and the label share the bottom centre: while a toast shows,
+    // the label steps aside.
+    Connections {
+        target: toast
+        function onShown() {
+            toolLabel.opacity = 0
+            hideToolLabel.stop()
         }
     }
 }
