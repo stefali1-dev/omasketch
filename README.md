@@ -1,6 +1,9 @@
 # omasketch
 
-A minimal, instant whiteboard for LeetCode scratch work on Wayland.
+A simple, fast, minimal scratchpad for sketching and notes on Wayland.
+Keyboard-driven: one key per tool, and `?` shows them all.
+
+![omasketch: draw, type, arrows, the keys card, select, erase, save](docs/demo.gif)
 
 ## Build
 
