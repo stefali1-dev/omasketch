@@ -152,7 +152,7 @@ class FilesTest : public QObject
 
 private slots:
     void exportCropsToTheDrawingWhereverTheViewSits();
-    void ctrlSChoosesADefaultPathThenOverwritesIt();
+    void firstCtrlSAsksThenLaterOnesOverwrite();
     void freshPageForgetsTheSaveTarget();
     void saveAsMovesTheTarget();
     void emptyPageWritesNothing();
@@ -199,14 +199,12 @@ void FilesTest::exportCropsToTheDrawingWhereverTheViewSits()
     QCOMPARE(rig.page->zoom(), 1.25);
 
     QSignalSpy toast(&rig.files, &Files::toastRequested);
-    rig.files.save();
+    rig.files.confirm(m_home.filePath("Pictures/Drawings/export.png"), "save");
 
     QCOMPARE(toast.size(), 1);
     QVERIFY(toast.constFirst().constFirst().toString().startsWith("saved → ~/"));
     const QStringList names = savedNames(m_home);
     QCOMPARE(names.size(), 1);
-    QVERIFY(QRegularExpression(R"(^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.png$)")
-                .match(names.constFirst()).hasMatch());
 
     // The PNG covers the drawing plus a 24 px margin on each side.
     const QString path = QDir(m_home.filePath("Pictures/Drawings")).filePath(names.constFirst());
@@ -228,28 +226,31 @@ void FilesTest::exportCropsToTheDrawingWhereverTheViewSits()
     QCOMPARE(pngPixel(path, {png.width() - 1, png.height() - 1}), palette::page);
 }
 
-void FilesTest::ctrlSChoosesADefaultPathThenOverwritesIt()
+void FilesTest::firstCtrlSAsksThenLaterOnesOverwrite()
 {
     freshHome();
     Rig rig;
+    QSignalSpy asked(&rig.files, &Files::pathBarRequested);
     QTest::keyClick(&rig.window, Qt::Key_D);
     draw(rig.window, {{100, 300}, {150, 300}, {200, 300}, {250, 300}, {300, 300}});
     rig.files.save();
-    const QStringList first = savedNames(m_home);
-    QCOMPARE(first.size(), 1);
-    const QString path = QDir(m_home.filePath("Pictures/Drawings")).filePath(first.constFirst());
+    QCOMPARE(asked.size(), 1);
+    QCOMPARE(asked.constFirst().constFirst().toString(), "save");
+    QVERIFY(!QDir(m_home.filePath("Pictures")).exists()); // nothing written yet
+
+    const QString path = m_home.filePath("first.png");
+    rig.files.confirm(path, "save"); // the path bar's answer
     QFile firstFile(path);
     QVERIFY(firstFile.open(QIODevice::ReadOnly));
     const QByteArray before = firstFile.readAll();
     firstFile.close();
 
     draw(rig.window, {{100, 400}, {150, 400}, {200, 400}, {250, 400}, {300, 400}});
-    rig.files.save(); // same second, same file: overwritten, not duplicated
-
-    QCOMPARE(savedNames(m_home), first);
-    QFile secondFile(path);
-    QVERIFY(secondFile.open(QIODevice::ReadOnly));
-    QVERIFY(secondFile.readAll() != before);
+    rig.files.save(); // quietly over the same file
+    QCOMPARE(asked.size(), 1);
+    QVERIFY(firstFile.open(QIODevice::ReadOnly));
+    QVERIFY(firstFile.readAll() != before);
+    QVERIFY(rig.page->isClean());
 }
 
 // Ctrl+N throws the drawing away (undoable), so the next save must start a
@@ -273,10 +274,10 @@ void FilesTest::freshPageForgetsTheSaveTarget()
     QCOMPARE(rig.files.saveTarget(), QString()); // forgotten
 
     draw(rig.window, {{100, 100}, {150, 100}, {200, 100}});
-    rig.files.save(); // a new timestamped file, never first.png
+    QSignalSpy asked(&rig.files, &Files::pathBarRequested);
+    rig.files.save(); // asks again, never overwrites first.png
 
-    QVERIFY(rig.files.saveTarget() != path);
-    QCOMPARE(savedNames(m_home).size(), 1);
+    QCOMPARE(asked.size(), 1);
     QVERIFY(firstFile.open(QIODevice::ReadOnly));
     QCOMPARE(firstFile.readAll(), before); // untouched
 }
@@ -315,7 +316,7 @@ void FilesTest::exportBeyondTheTextureLimitCapsTheScale()
     rig.page->addItem(far);
 
     QSignalSpy toast(&rig.files, &Files::toastRequested);
-    rig.files.save();
+    rig.files.confirm(m_home.filePath("Pictures/Drawings/far.png"), "save");
     QCOMPARE(toast.size(), 1);
     QVERIFY(toast.constFirst().constFirst().toString().startsWith("saved → ~/"));
 
@@ -494,7 +495,10 @@ void FilesTest::clipboardRoundTrip()
     QTest::keyClick(&rig.window, Qt::Key_V); // the select tool
     click(rig.window, QPointF(230, 220));
     QCOMPARE(rig.page->selection().size(), 1);
+    QSignalSpy toast(&rig.files, &Files::toastRequested);
     rig.files.copySelection();
+    QCOMPARE(toast.size(), 1);
+    QCOMPARE(toast.constFirst().constFirst().toString(), "copied");
     const QImage copied = QGuiApplication::clipboard()->image();
     QCOMPARE(copied.size(), QSize(64 + 2 * 24, 48 + 2 * 24));
     QCOMPARE(copied.pixelColor(29, 29), QColor(Qt::red));
@@ -638,6 +642,8 @@ void FilesTest::closingAutosavesOnlyUnsavedChanges()
     draw(rig.window, {{100, 300}, {150, 300}, {200, 300}, {250, 300}, {300, 300}});
     rig.files.appClosing(); // quietly into the default folder
     QCOMPARE(savedNames(m_home).size(), 1);
+    QVERIFY(QRegularExpression(R"(^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.png$)")
+                .match(savedNames(m_home).constFirst()).hasMatch());
     QVERIFY(rig.page->isClean());
 
     // Clean now: closing again writes nothing new.

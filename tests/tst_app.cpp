@@ -15,6 +15,7 @@
 #include "palette.h"
 #include "page.h"
 #include "pageitem.h"
+#include "pathcompleter.h"
 #include "textbox.h"
 #include "tools.h"
 
@@ -102,6 +103,8 @@ private slots:
     void arrowFlowThroughMainQml();
     void toastHidesTheToolLabel();
     void pageClickClosesThePathBar();
+    void keyHintRetiresOnTheFirstClick();
+    void questionMarkTogglesTheKeysCard();
 };
 
 void AppTest::mainQmlWiresThePageAndDraws()
@@ -239,16 +242,19 @@ void AppTest::textFlowThroughMainQml()
 
 void AppTest::saveFlowThroughMainQml()
 {
-    // Ctrl+S through the real Main.qml: the shortcut reaches Files, the
-    // drawing lands in HOME/Pictures/Drawings and the toast is asked for.
+    // Ctrl+S through the real Main.qml: the shortcut reaches Files, the path
+    // bar asks, the drawing lands in HOME/Pictures/Drawings and the toast is
+    // asked for.
     QTemporaryDir home;
     QVERIFY(home.isValid());
     qputenv("HOME", home.path().toUtf8());
 
+    PathCompleter completer;
     Tools tools;
     Files files;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("Colors", paletteMap());
+    engine.rootContext()->setContextProperty("completer", &completer);
     engine.rootContext()->setContextProperty("tools", &tools);
     engine.rootContext()->setContextProperty("files", &files);
     engine.loadFromModule("Omasketch", "Main");
@@ -261,6 +267,7 @@ void AppTest::saveFlowThroughMainQml()
     tools.setPage(page);
     files.setPage(page);
     QObject::connect(&tools, &Tools::saveRequested, &files, &Files::save);
+    QObject::connect(&files, &Files::pathBarRequested, &tools, &Tools::pathBarRequested);
 
     // Wait for the first rendered frame, so the render thread is settled
     // before the save renders offscreen.
@@ -275,7 +282,12 @@ void AppTest::saveFlowThroughMainQml()
     draw(*window, {{100, 300}, {150, 300}, {200, 300}, {250, 300}, {300, 300}});
 
     QSignalSpy toast(&files, &Files::toastRequested);
+    // The first Ctrl+S opens the path bar on the default name; Enter saves.
     QTest::keyClick(window, Qt::Key_S, Qt::ControlModifier);
+    auto *loader = window->findChild<QQuickItem *>("pathBarLoader");
+    QVERIFY(loader && loader->property("active").toBool());
+    QCOMPARE(toast.size(), 0);
+    QTest::keyClick(window, Qt::Key_Return);
 
     const QStringList saved = QDir(home.filePath("Pictures/Drawings"))
                                   .entryList(QDir::Files);
@@ -414,7 +426,7 @@ void AppTest::toastHidesTheToolLabel()
     waited.start();
     while (!frameDone && waited.elapsed() < 2000)
         QTest::qWait(10);
-    files.save();
+    files.copySelection();
 
     auto *toast = window->findChild<QQuickItem *>("toast");
     QVERIFY(toast);
@@ -460,6 +472,95 @@ void AppTest::pageClickClosesThePathBar()
     mouse(*window, QEvent::MouseButtonPress, QPointF(400, 200));
     mouse(*window, QEvent::MouseButtonRelease, QPointF(400, 200));
     QCOMPARE(bar->property("shown").toBool(), false);
+}
+
+void AppTest::keyHintRetiresOnTheFirstClick()
+{
+    Tools tools;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("Colors", paletteMap());
+    engine.rootContext()->setContextProperty("tools", &tools);
+    engine.loadFromModule("Omasketch", "Main");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    QVERIFY(window);
+    tools.attach(window);
+    Page *page = pageIn(window);
+    QVERIFY(page);
+    tools.setPage(page);
+    auto *hint = window->findChild<QQuickItem *>("keyHint");
+    QVERIFY(hint);
+
+    QTest::qWait(50);
+    QVERIFY(hint->isVisible());
+    QTest::keyClick(window, Qt::Key_D); // a tool key alone keeps it up
+    QVERIFY(hint->isVisible());
+
+    draw(*window, {{100, 300}, {200, 300}});
+    QTRY_VERIFY(!hint->isVisible());
+    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier); // blank again
+    QTest::qWait(200);
+    QVERIFY(!hint->isVisible()); // retired for good
+}
+
+void AppTest::questionMarkTogglesTheKeysCard()
+{
+    Tools tools;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("Colors", paletteMap());
+    engine.rootContext()->setContextProperty("tools", &tools);
+    engine.loadFromModule("Omasketch", "Main");
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    QVERIFY(window);
+    tools.attach(window);
+    Page *page = pageIn(window);
+    QVERIFY(page);
+    tools.setPage(page);
+    QTest::qWait(50);
+    QVERIFY(!window->findChild<QQuickItem *>("keysCard")); // built on demand
+
+    // `?` opens, `?` closes. QTest presses Shift first, like a hand does.
+    QTest::keyClick(window, Qt::Key_Question, Qt::ShiftModifier);
+    auto *card = window->findChild<QQuickItem *>("keysCard");
+    QVERIFY(card);
+    QVERIFY(card->property("shown").toBool());
+    QTest::keyClick(window, Qt::Key_Question, Qt::ShiftModifier);
+    QVERIFY(!card->property("shown").toBool());
+
+    // Another key closes it and still does its job.
+    QTest::keyClick(window, Qt::Key_Question, Qt::ShiftModifier);
+    QTest::keyClick(window, Qt::Key_D);
+    QVERIFY(!card->property("shown").toBool());
+    QCOMPARE(tools.tool(), Tools::Draw);
+
+    // A click closes it and draws nothing.
+    QTest::keyClick(window, Qt::Key_Question, Qt::ShiftModifier);
+    QTRY_VERIFY(card->isVisible());
+    QTest::mouseClick(window, Qt::LeftButton, {}, QPoint(150, 150));
+    QVERIFY(!card->property("shown").toBool());
+    QCOMPARE(page->items().size(), 0);
+
+    // The corner button opens it for the mouse.
+    auto *button = window->findChild<QQuickItem *>("keysButton");
+    QVERIFY(button);
+    QTRY_VERIFY(!card->isVisible());
+    const QPointF centre = button->mapToScene(
+        QPointF(button->width() / 2, button->height() / 2));
+    QTest::mouseClick(window, Qt::LeftButton, {}, centre.toPoint());
+    QVERIFY(card->property("shown").toBool());
+    QTest::mouseClick(window, Qt::LeftButton, {}, centre.toPoint());
+    QTRY_VERIFY(!card->isVisible());
+
+    // Clicked mid-edit, the button commits the text before the card opens.
+    QTest::keyClick(window, Qt::Key_T);
+    QTest::mouseClick(window, Qt::LeftButton, {}, QPoint(300, 300));
+    QVERIFY(page->editing());
+    QTest::keyClick(window, Qt::Key_X);
+    QTest::mouseClick(window, Qt::LeftButton, {}, centre.toPoint());
+    QVERIFY(!page->editing());
+    QCOMPARE(page->items().size(), 1);
+    QVERIFY(card->property("shown").toBool());
 }
 
 QTEST_MAIN(AppTest)

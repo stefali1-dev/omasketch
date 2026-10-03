@@ -18,6 +18,7 @@
 #   type <text>                 types the rest of the line
 #   wait <ms>                   pause
 #   shot <name.png>             screenshot of the whole hidden screen
+#   clip <name.png>             the clipboard's PNG, saved in $OMA_SHOTS
 #   close                       ask the window to close, like a WM would
 set -u
 D=$(dirname "$(readlink -f "$0")")
@@ -83,6 +84,7 @@ $(awk "BEGIN{printf \"%.0f\", $2 + ($4-$2) * $i / $n}")" >&7
     type) wtype "$rest" ;;
     wait) sleep "$(awk "BEGIN{print $rest/1000}")" ;;
     shot) sleep 0.2; grim -o HEADLESS-1 "$OMA_SHOTS/$rest" ;;
+    clip) timeout 2 wl-paste -t image/png > "$OMA_SHOTS/$rest" ;;
     close) swaymsg -q '[app_id="omasketch"] kill' ;;
   esac
 done < "$STEPS"

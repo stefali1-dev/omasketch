@@ -1,6 +1,7 @@
 #include <QtQuick/QQuickWindow>
 #include <QtTest>
 
+#include "page.h"
 #include "tools.h"
 
 class SkeletonTest : public QObject
@@ -52,6 +53,12 @@ void SkeletonTest::keyPressChangesTool()
     QQuickWindow window;
     Tools tools;
     tools.attach(&window);
+    // The cursors live on the page (Tools::applyCursor); it fills the window.
+    auto *page = new Page(window.contentItem());
+    page->setSize(QSizeF(640, 480));
+    tools.setPage(page);
+    window.resize(640, 480);
+    window.show();
 
     QCOMPARE(tools.tool(), Tools::Select);
 

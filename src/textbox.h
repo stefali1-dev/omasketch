@@ -15,7 +15,7 @@ class QQmlComponent;
 // the public QML API — the C++ TextEdit class is private), which exists from
 // the first edit on and is hidden between edits. The page starts and commits
 // edits — a committed box carries its final text, so creating one is a plain
-// AddItem — and the box only reports that an edit started or ended.
+// AddItem.
 class TextBox : public PageItem
 {
     Q_OBJECT
@@ -46,7 +46,6 @@ public:
     void setColor(const QColor &color) override;
 
 signals:
-    void editingChanged();
     // The live text changed the box's size while editing; the page keeps
     // the selection box and hit tests on it.
     void boundsChanged();
@@ -54,7 +53,6 @@ signals:
 protected:
     QRectF localBounds() const override;
     QRectF boundingRect() const override;
-    void keyPressEvent(QKeyEvent *event) override;
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data) override;
 
 private:

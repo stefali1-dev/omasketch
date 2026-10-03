@@ -94,6 +94,7 @@ int main(int argc, char *argv[])
     // from the command line once the first frame is up. The path bar's
     // confirmations arrive through Main.qml (Loader.onLoaded).
     QObject::connect(&tools, &Tools::saveRequested, &files, &Files::save);
+    QObject::connect(&files, &Files::pathBarRequested, &tools, &Tools::pathBarRequested);
     QObject::connect(&tools, &Tools::copyRequested, &files, &Files::copySelection);
     QObject::connect(&tools, &Tools::pasteRequested, &files, &Files::paste);
     QObject::connect(&files, &Files::toastRequested, window,

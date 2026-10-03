@@ -19,9 +19,9 @@ constexpr qreal kExportMargin = 24;
 QImage renderWorldToImage(QQuickItem *world, const QRectF &worldRect, qreal scale);
 
 // Saving and opening PNGs (decisions.md, "Files"). Ctrl+S keeps one target:
-// the first save goes to ~/Pictures/Drawings/<timestamp>.png, later saves
-// overwrite it; a save-as from the path bar moves the target. Opens, pastes
-// and drops place the PNG as an image item. Closing with unsaved changes
+// the first save asks for it in the path bar, later saves overwrite it; a
+// save-as from the path bar moves the target. Opens, pastes and drops place
+// the PNG as an image item. Closing with unsaved changes
 // quietly auto-saves. The page changes only through Page's undoable API, so
 // an unclean undo stack is exactly "unsaved changes".
 class Files : public QObject
@@ -56,6 +56,8 @@ public:
 signals:
     // Feedback lines for the toast ("saved → ~/…", "nothing to save").
     void toastRequested(const QString &message);
+    // Ctrl+S on a page with no file yet (main.cpp relays it to Tools').
+    void pathBarRequested(const QString &mode);
 
 private:
     void saveTo(const QString &path, bool toast);
@@ -63,7 +65,7 @@ private:
     void openImage(const QImage &image);
     bool writePng(const QRectF &worldRect, const QString &path);
     QRectF exportRect() const;     // drawing bounds plus margin
-    QString defaultPath() const;   // ~/Pictures/Drawings/<timestamp>.png
+    QString defaultPath() const;   // the autosave's ~/Pictures/Drawings/<timestamp>.png
 
     Page *m_page = nullptr;
     QString m_target;              // the file later Ctrl+S updates

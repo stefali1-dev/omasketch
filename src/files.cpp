@@ -171,7 +171,13 @@ void Files::setPage(Page *page)
 
 void Files::save()
 {
-    saveTo(m_target.isEmpty() ? defaultPath() : m_target, true);
+    // The first save of a page asks where, in the path bar (pre-filled with
+    // the default name); later ones overwrite that file quietly. A blank
+    // page skips the question: saveTo says there is nothing to save.
+    if (m_target.isEmpty() && exportRect().isValid())
+        emit pathBarRequested(QStringLiteral("save"));
+    else
+        saveTo(m_target, true);
 }
 
 void Files::confirm(const QString &path, const QString &mode)
@@ -198,6 +204,7 @@ void Files::copySelection()
                                        kExportMargin, kExportMargin);
     QGuiApplication::clipboard()->setImage(
         renderWorldToImage(m_page->worldItem(), rect, exportScale(m_page)));
+    emit toastRequested("copied");
 }
 
 void Files::paste()

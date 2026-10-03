@@ -2,7 +2,7 @@
 
 #include <QFontMetricsF>
 #include <QGuiApplication>
-#include <QKeyEvent>
+#include <QMouseEvent>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -181,7 +181,6 @@ void TextBox::startEdit(const QPointF &localPress)
 
     m_editing = true;
     update(); // the editor draws the text now; the idle node steps aside
-    emit editingChanged();
 }
 
 void TextBox::stopEdit()
@@ -193,20 +192,6 @@ void TextBox::stopEdit()
     m_editor->setVisible(false);
     m_editing = false;
     update();
-    emit editingChanged();
-}
-
-void TextBox::keyPressEvent(QKeyEvent *event)
-{
-    // Esc reaches this box only while it is editing: the editor child has
-    // focus and ignores the key, and it propagates up the parent chain. The
-    // page hears about the end through editingChanged and commits.
-    if (event->key() == Qt::Key_Escape) {
-        stopEdit();
-        event->accept();
-        return;
-    }
-    QQuickItem::keyPressEvent(event);
 }
 
 bool TextBox::hitTest(const QPointF &worldPos, qreal tolerance) const

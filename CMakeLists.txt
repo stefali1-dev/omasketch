@@ -53,6 +53,7 @@ qt_add_qml_module(omasketch
         src/Main.qml
         src/PathBar.qml
         src/Toast.qml
+        src/KeysCard.qml
 )
 
 target_link_libraries(omasketch PRIVATE Qt6::Quick Qt6::Gui Qt6::GuiPrivate)
@@ -78,6 +79,8 @@ qt_add_executable(tst_app
     ${OMASKETCH_PAGE_SOURCES}
     src/files.cpp
     src/files.h
+    src/pathcompleter.cpp
+    src/pathcompleter.h
 )
 target_include_directories(tst_app PRIVATE src)
 target_link_libraries(tst_app PRIVATE Qt6::Quick Qt6::Gui Qt6::GuiPrivate Qt6::Test)
@@ -89,6 +92,7 @@ qt_add_qml_module(tst_app
         src/Main.qml
         src/PathBar.qml
         src/Toast.qml
+        src/KeysCard.qml
 )
 
 # Saving, opening, the clipboard and image items.

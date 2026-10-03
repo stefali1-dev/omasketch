@@ -5,15 +5,16 @@
 #
 #   tests/e2e/run.sh <path-to-omasketch>     (ctest passes the binary)
 #
-# Needs sway, wtype, grim, imagemagick, python3, gcc and wayland-client.h;
-# exits 77 (ctest skips) when one is missing. Screenshots for debugging land
-# in a /tmp folder named in the output. Exits non-zero when a check fails.
+# Needs sway, wtype, grim, wl-paste, imagemagick, python3, gcc and
+# wayland-client.h; exits 77 (ctest skips) when one is missing. Screenshots
+# for debugging land in a /tmp folder named in the output. Exits non-zero
+# when a check fails.
 set -u
 D=$(dirname "$(readlink -f "$0")")
 BIN=$(readlink -f "${1:?usage: run.sh <omasketch binary>}")
 
 missing=
-for tool in sway wtype grim magick python3 gcc; do
+for tool in sway wtype grim wl-paste magick python3 gcc; do
   command -v "$tool" > /dev/null || missing="$missing $tool"
 done
 echo '#include <wayland-client.h>' | gcc -E - > /dev/null 2>&1 \
@@ -83,6 +84,14 @@ stats() { python3 "$T/pngstats.py" "$@"; }
 
 # --- session 1: draw, edit, save, save as, close -----------------------------
 cat > "$T/session.steps" <<'EOF'
+# the key hint on the blank page; `?` opens the keys card, Esc closes it
+shot hint.png
+type ?
+wait 300
+shot keys.png
+tap Escape
+wait 300
+shot keys-closed.png
 # two black strokes
 tap d
 drag 250 250 600 250
@@ -117,8 +126,15 @@ shot erased.png
 key -M ctrl -k z -m ctrl
 wait 300
 shot undone.png
-# save, then save as auto.png through the path bar (Ctrl+U clears the line)
+# copy the whole drawing (the eraser cleared the selection)
+key -M ctrl -k c -m ctrl
+wait 300
+clip copied.png
+# the first save asks: Enter takes the default name; then save as auto.png
+# through the path bar (Ctrl+U clears the line)
 key -M ctrl -k s -m ctrl
+wait 300
+tap Return
 wait 400
 key -M ctrl -M shift -k s -m shift -m ctrl
 wait 300
@@ -148,6 +164,13 @@ echo "     first frame: $(grep -o 'first frame [0-9]* ms' "$OMA_SHOTS/app.log" |
 check "no QML warnings on stderr" \
   bash -c "test -f '$OMA_SHOTS/app.log' && ! grep -qE 'qrc:|\.qml:' '$OMA_SHOTS/app.log'"
 
+read -r _ _ _ _ HN < <(stats "$OMA_SHOTS/hint.png" centre)
+read -r _ _ _ _ KN < <(stats "$OMA_SHOTS/keys.png" centre)
+read -r _ _ _ _ CN < <(stats "$OMA_SHOTS/keys-closed.png" centre)
+check "a blank launch shows the key hint" test "$HN" -gt 20
+check "? opens the keys card" test "$KN" -gt $((HN * 5))
+check "Esc closes the keys card" test "$CN" -le "$HN"
+
 read -r W1 _ B1 R1 I1 < <(stats "$OMA_SHOTS/session1.png")
 echo "     session1.png: ${W1} wide, black=$B1 red=$R1"
 check "the strokes show in black" test "$B1" -gt 200
@@ -157,8 +180,13 @@ check "the eraser removed the bottom stroke" test $((B2 * 10)) -lt $((B1 * 9))
 read -r _ _ B3 _ _ < <(stats "$OMA_SHOTS/undone.png")
 check "undo brought the stroke back" test "$B3" -ge $((B2 + 100))
 
+read -r CW CH CB _ _ < <(stats "$OMA_SHOTS/copied.png")
+echo "     copied.png: ${CW}x${CH}, black=$CB"
+check "Ctrl+C put the cropped drawing on the clipboard" \
+  test "$CW" -gt 0 -a "$CW" -lt 1580 -a "$CB" -gt 100
+
 saved=$(ls "$DRAWINGS"/[0-9][0-9][0-9][0-9]-*.png 2>/dev/null | wc -l)
-check "Ctrl+S wrote one timestamped PNG" test "$saved" = 1
+check "Ctrl+S, Enter wrote one timestamped PNG" test "$saved" = 1
 check "Ctrl+Shift+S wrote auto.png via Tab completion" test -f "$DRAWINGS/auto.png"
 
 # The saved drawing: cropped to the ink plus a margin, with red and black.

@@ -30,17 +30,18 @@ folder it names.
 | Key | Does |
 |---|---|
 | `d` `t` `v` `e` `a` | Draw, text, select, eraser, arrow |
+| `?` | All the keys (or the `?` in the corner) |
 | `1` `2` `3` | Black, red, blue |
 | Space + drag, scroll | Pan |
 | Ctrl+Z / Ctrl+Shift+Z | Undo / redo |
 | Ctrl+A | Select all |
-| Ctrl+C / Ctrl+V | Copy / paste as image |
-| Ctrl+S | Save to `~/Pictures/Drawings/<timestamp>.png` |
+| Ctrl+C / Ctrl+V | Copy the selection (or the whole drawing) as a PNG / paste an image |
+| Ctrl+S | Save: the first time asks in the path bar (Enter takes `~/Pictures/Drawings/<timestamp>.png`), then overwrites that file |
 | Ctrl+Shift+S | Save as, via the path bar (Tab completes, `~` works) |
 | Ctrl+O | Open a PNG, via the path bar |
 | Ctrl+N | Fresh page |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / back to the drawing |
-| Esc | Stop typing → deselect → select tool |
+| Esc | Stop typing (back to select) · deselect → select tool |
 | Del / Backspace | Delete the selection |
 
 Closing with unsaved changes quietly auto-saves to the current target

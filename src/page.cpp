@@ -344,10 +344,6 @@ void Page::newPage()
 
 bool Page::escape()
 {
-    if (m_editing) {
-        commitEditing(); // the box stays, the tool stays
-        return true;
-    }
     if (m_drag == Drag::None && m_selection.isEmpty())
         return false;
     cancelDrag(); // a held drag must not commit after the Esc
@@ -394,6 +390,7 @@ void Page::addItem(PageItem *item)
     if (!m_items.contains(item))
         m_items.append(item);
     item->setParentItem(m_world);
+    emit itemsChanged();
 }
 
 void Page::removeItem(PageItem *item)
@@ -402,6 +399,7 @@ void Page::removeItem(PageItem *item)
     m_selection.removeOne(item);
     item->setParentItem(nullptr);
     updateSelectionBox();
+    emit itemsChanged();
 }
 
 void Page::eraseItem(PageItem *item)
@@ -413,6 +411,7 @@ void Page::eraseItem(PageItem *item)
     m_items.removeOne(item);
     m_selection.removeOne(item);
     updateSelectionBox();
+    emit itemsChanged();
     auto *fade = new QPropertyAnimation(item, "opacity", item);
     fade->setDuration(kFade);
     fade->setStartValue(item->opacity());
@@ -441,6 +440,7 @@ void Page::restoreItem(PageItem *item, int index)
     const int at = m_items.indexOf(item);
     if (at + 1 < m_items.size())
         item->stackBefore(m_items[at + 1]);
+    emit itemsChanged();
 }
 
 void Page::addImage(const QImage &image, const QPointF &worldPos, QSizeF size)
@@ -781,13 +781,13 @@ void Page::updateHoverCursor(const QPointF &pagePos)
 {
     // Dragging tools own their cursors (the resize drag keeps the diagonal).
     if (m_tool != Tools::Select || m_drag != Drag::None || m_drawing || m_panning
-        || m_spaceHeld || !window()) {
+        || m_spaceHeld) {
         return;
     }
     const int corner = handleAt(pagePos);
-    window()->setCursor(corner < 0 ? Qt::ArrowCursor
-                        : corner == 0 || corner == 2 ? Qt::SizeFDiagCursor
-                                                     : Qt::SizeBDiagCursor);
+    setCursor(corner < 0 ? Qt::ArrowCursor
+              : corner == 0 || corner == 2 ? Qt::SizeFDiagCursor
+                                           : Qt::SizeBDiagCursor);
 }
 
 void Page::pressSelect(QMouseEvent *event)
@@ -843,8 +843,7 @@ void Page::pressSelect(QMouseEvent *event)
     if (!shift)
         m_selection.clear();
     updateSelectionBox(); // an old box must not linger until the first move
-    if (window())
-        window()->setCursor(Qt::CrossCursor);
+    setCursor(Qt::CrossCursor);
     event->accept();
 }
 
@@ -873,10 +872,6 @@ void Page::startEditing(TextBox *box, bool isNew, const QPointF &localPress)
     m_editing = box;
     m_editingNew = isNew;
     m_editingBefore = box->text();
-    connect(box, &TextBox::editingChanged, this, [this, box] {
-        if (m_editing == box && !box->isEditing())
-            commitEditing(); // the box stopped editing itself (Esc)
-    });
     // The live text sits in the editor; the page redraws the box's overlay
     // as its bounds follow the typing.
     connect(box, &TextBox::boundsChanged, this, [this] { updateSelectionBox(); });
@@ -888,8 +883,8 @@ void Page::commitEditing()
     if (!m_editing)
         return;
     TextBox *box = m_editing;
-    m_editing = nullptr; // first: the stopEdit signal must not re-enter
-    disconnect(box, nullptr, this, nullptr); // the edit's two connections
+    m_editing = nullptr;
+    disconnect(box, nullptr, this, nullptr); // the edit's boundsChanged
     box->stopEdit();
     if (m_editingNew) {
         if (box->text().isEmpty()) {
@@ -964,10 +959,7 @@ void Page::startResize(int corner)
     m_dragBasePos.clear();
     for (PageItem *item : m_dragItems)
         m_dragBasePos.append(item->position());
-    if (window()) {
-        window()->setCursor(corner == 0 || corner == 2 ? Qt::SizeFDiagCursor
-                                                       : Qt::SizeBDiagCursor);
-    }
+    setCursor(corner == 0 || corner == 2 ? Qt::SizeFDiagCursor : Qt::SizeBDiagCursor);
 }
 
 void Page::resizeTo(const QPointF &worldPos, bool free)

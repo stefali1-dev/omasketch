@@ -38,12 +38,15 @@ public:
 
 signals:
     void toolChanged();
-    // Ctrl+Shift+S / Ctrl+O (Super arrives as either Ctrl or Meta).
+    // Ctrl+Shift+S / Ctrl+O (Super arrives as either Ctrl or Meta), and
+    // Files' first Ctrl+S of a page, relayed by main.cpp.
     void pathBarRequested(const QString &mode);
     // Ctrl+S / Ctrl+C / Ctrl+V (main.cpp wires these to Files).
     void saveRequested();
     void copyRequested();
     void pasteRequested();
+    // `?`: Main.qml toggles the keys card.
+    void keysRequested();
 
 private:
     void setTool(Tool tool);

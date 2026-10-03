@@ -89,9 +89,9 @@ public:
     void deleteSelection();
     // Stops the box being edited and makes the edit an undo step; nothing
     // happens when no box is editing. The shortcuts that still work while
-    // typing (save/open path bar, fresh page) and the close-time autosave
-    // call this first.
-    void commitEditing();
+    // typing (save/open path bar, fresh page), the keys card and the
+    // close-time autosave call this first.
+    Q_INVOKABLE void commitEditing();
 
     // The topmost item within a few screen pixels of the world point.
     PageItem *itemAt(const QPointF &worldPos) const;
@@ -112,6 +112,8 @@ public:
 
 signals:
     void panningChanged();
+    // An item joined or left the page; the first one retires the key hint.
+    void itemsChanged();
     // A fresh page threw everything away (undoable); the old content's save
     // target no longer fits what is on the page now.
     void freshPage();

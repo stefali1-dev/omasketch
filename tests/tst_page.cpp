@@ -223,9 +223,10 @@ private slots:
     void startingAMarqueeHidesTheOldBoxAtOnce();
     void zoomIsBlockedMidDrag();
     void wheelPanIsBlockedMidDrag();
-    void textToolPlacesAndTypesAndStays();
+    void textToolPlacesAndTypes();
     void toolKeysGoIntoTheText();
-    void escapeTwiceReturnsToSelect();
+    void escapeEndsTypingAndTheTextTool();
+    void textCursorSurvivesTheEditor();
     void emptyBoxRemovedWithoutAnUndoStep();
     void createUndoRedo();
     void clickOnABoxEditsAtTheClick();
@@ -1267,7 +1268,7 @@ void PageTest::wheelPanIsBlockedMidDrag()
     QCOMPARE(rig.page->items().constFirst()->position(), QPointF(30, 0));
 }
 
-void PageTest::textToolPlacesAndTypesAndStays()
+void PageTest::textToolPlacesAndTypes()
 {
     Rig rig;
     rig.window.show();
@@ -1283,7 +1284,6 @@ void PageTest::textToolPlacesAndTypesAndStays()
     type(rig.window, "int n = 5");
     QTest::keyClick(&rig.window, Qt::Key_Escape);
 
-    QCOMPARE(rig.tools.tool(), Tools::Text); // the tool stays text
     QCOMPARE(rig.page->items().size(), 1);
     auto *box = qobject_cast<TextBox *>(rig.page->items().constFirst());
     QVERIFY(box);
@@ -1312,7 +1312,7 @@ void PageTest::toolKeysGoIntoTheText()
              QStringLiteral("vd1e2a"));
 }
 
-void PageTest::escapeTwiceReturnsToSelect()
+void PageTest::escapeEndsTypingAndTheTextTool()
 {
     Rig rig;
     rig.window.show();
@@ -1321,20 +1321,46 @@ void PageTest::escapeTwiceReturnsToSelect()
     click(rig.window, QPointF(200, 200));
     type(rig.window, "x");
 
-    QTest::keyClick(&rig.window, Qt::Key_Escape);
-    QCOMPARE(rig.page->items().size(), 1); // the box stays
-    QCOMPARE(rig.tools.tool(), Tools::Text);
-    QTest::keyClick(&rig.window, Qt::Key_Escape);
-    QCOMPARE(rig.tools.tool(), Tools::Select);
-
-    // The same two-Esc round for an empty box, which is not even committed.
-    QTest::keyClick(&rig.window, Qt::Key_T);
+    // A click elsewhere commits and starts the next box: the tool stays.
     click(rig.window, QPointF(400, 300));
-    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QVERIFY(rig.page->editing());
     QCOMPARE(rig.page->items().size(), 1);
     QCOMPARE(rig.tools.tool(), Tools::Text);
+    type(rig.window, "y");
+
+    // One Esc commits and returns to select.
     QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QVERIFY(!rig.page->editing());
+    QCOMPARE(rig.page->items().size(), 2); // the box stays
     QCOMPARE(rig.tools.tool(), Tools::Select);
+
+    // The same for an empty box, which is not even committed.
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(300, 400));
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QCOMPARE(rig.page->items().size(), 2);
+    QCOMPARE(rig.tools.tool(), Tools::Select);
+}
+
+// Qt Quick resets the window cursor when the mouse leaves an item with its
+// own (the editor's I-beam); the tool's cursor must come back regardless.
+void PageTest::textCursorSurvivesTheEditor()
+{
+    Rig rig;
+    rig.window.show();
+    QTest::qWait(50);
+    QTest::keyClick(&rig.window, Qt::Key_T);
+    click(rig.window, QPointF(200, 200));
+    type(rig.window, "abc");
+    mouse(rig.window, QEvent::MouseMove, QPointF(205, 205)); // over the editor
+    mouse(rig.window, QEvent::MouseMove, QPointF(400, 400));
+    QCOMPARE(rig.window.cursor().shape(), Qt::IBeamCursor);
+
+    QTest::keyClick(&rig.window, Qt::Key_Escape);
+    QTest::keyClick(&rig.window, Qt::Key_D);
+    mouse(rig.window, QEvent::MouseMove, QPointF(205, 205)); // the hidden editor
+    mouse(rig.window, QEvent::MouseMove, QPointF(410, 410));
+    QVERIFY(!rig.window.cursor().pixmap().isNull()); // the pencil dot
 }
 
 void PageTest::emptyBoxRemovedWithoutAnUndoStep()
@@ -1947,3 +1973,4 @@ void PageTest::arrowMovesResizesDeletesLikeAStroke()
 
 QTEST_MAIN(PageTest)
 #include "tst_page.moc"
+

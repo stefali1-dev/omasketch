@@ -53,7 +53,6 @@ void Tools::attach(QQuickWindow *window)
 {
     m_window = window;
     window->installEventFilter(this);
-    applyCursor();
 }
 
 void Tools::setPage(Page *page)
@@ -63,6 +62,7 @@ void Tools::setPage(Page *page)
     connect(page, &Page::panningChanged, this, &Tools::applyCursor);
     page->setTool(m_tool);
     page->setInk(m_ink);
+    applyCursor();
 }
 
 Page *pageIn(QQuickWindow *window)
@@ -94,6 +94,7 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
         // branch below: the zoom keys (a view change, like the wheel) and
         // the path bar / fresh page (they commit the edit, then act).
         // Ctrl+Z/A/C/V stay in the box, where they are Qt's own editing.
+        // Esc ends the typing and the text tool in one press.
         auto *focus = m_window ? m_window->activeFocusItem() : nullptr;
         if (focus && focus->flags().testFlag(QQuickItem::ItemAcceptsInputMethod)) {
             bool editing = false;
@@ -105,6 +106,11 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
             }
             if (!editing)
                 return QObject::eventFilter(watched, event);
+            if (key->key() == Qt::Key_Escape && m_page) {
+                m_page->commitEditing();
+                setTool(Select);
+                return true;
+            }
             const bool shortcut = key->modifiers()
                 & (Qt::ControlModifier | Qt::MetaModifier);
             const bool zoomKey = shortcut
@@ -135,6 +141,7 @@ bool Tools::eventFilter(QObject *watched, QEvent *event)
             case Qt::Key_1:      setInk(Black); break;
             case Qt::Key_2:      setInk(Red); break;
             case Qt::Key_3:      setInk(Blue); break;
+            case Qt::Key_Question: emit keysRequested(); break;
             case Qt::Key_Delete:
             case Qt::Key_Backspace:
                 if (m_page) m_page->deleteSelection();
@@ -237,32 +244,35 @@ void Tools::setInk(Ink ink)
 
 void Tools::applyCursor()
 {
-    if (!m_window)
+    // The cursors live on the page item, not the window: Qt Quick resets the
+    // window cursor whenever the mouse leaves an item with its own cursor
+    // (the text editor's I-beam), and would drop the tool's.
+    if (!m_page)
         return;
-    if (m_page && m_page->isPanning()) {
-        m_window->setCursor(Qt::ClosedHandCursor);
+    if (m_page->isPanning()) {
+        m_page->setCursor(Qt::ClosedHandCursor);
         return;
     }
-    if (m_spaceHeld && !(m_page && m_page->isDrawing())) {
-        m_window->setCursor(Qt::OpenHandCursor);
+    if (m_spaceHeld && !m_page->isDrawing()) {
+        m_page->setCursor(Qt::OpenHandCursor);
         return;
     }
     const qreal dpr = m_window->devicePixelRatio();
     switch (m_tool) {
     case Draw:
-        m_window->setCursor(circleCursor(dpr, 10, palette::page, palette::ink));
+        m_page->setCursor(circleCursor(dpr, 10, palette::page, palette::ink));
         break;
     case Eraser:
-        m_window->setCursor(circleCursor(dpr, kEraserDiameter, palette::ui, QColor()));
+        m_page->setCursor(circleCursor(dpr, kEraserDiameter, palette::ui, QColor()));
         break;
     case Text:
-        m_window->setCursor(Qt::IBeamCursor);
+        m_page->setCursor(Qt::IBeamCursor);
         break;
     case Arrow:
-        m_window->setCursor(Qt::CrossCursor);
+        m_page->setCursor(Qt::CrossCursor);
         break;
     case Select:
-        m_window->setCursor(Qt::ArrowCursor);
+        m_page->setCursor(Qt::ArrowCursor);
         break;
     }
 }
