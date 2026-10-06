@@ -5,16 +5,28 @@ Keyboard-driven: one key per tool, and `?` shows them all.
 
 ![omasketch: draw, type, arrows, the keys card, select, erase, save](docs/demo.gif)
 
+## Install
+
+On Arch or Omarchy, in a terminal (it asks for your password once):
+
+    git clone https://github.com/stefali1-dev/omasketch
+    cd omasketch/aur && makepkg -si
+
+This builds the tagged release (a few seconds) and installs it as a normal
+pacman package: `pacman -R omasketch` removes it. To update, run
+`git pull && makepkg -si` in the same folder.
+
+To open it with Super+D, add this line to `~/.config/hypr/bindings.lua`:
+
+    o.bind("SUPER + D", "Sketch", { launch = "omasketch" })
+
 ## Build
 
     cmake -B build
     cmake --build build
-
-## Install
-
     cmake --install build --prefix ~/.local
 
-Installs the `omasketch` binary and `omasketch.desktop`. There is no icon.
+Installs the `omasketch` binary, `omasketch.desktop` and its icon.
 
 ## Test
 
@@ -51,5 +63,5 @@ Closing with unsaved changes quietly auto-saves to the current target
 (`~/Pictures/Drawings` if never saved). Saves crop to what is drawn, plus a
 margin. Files are plain PNG.
 
-The Hyprland bindings Super+D / Super+Shift+S / Super+O are not part of this
+The author's extra Hyprland bindings (Super+Shift+S / Super+O) are not part of this
 repo; they live in the desktop dotfiles.

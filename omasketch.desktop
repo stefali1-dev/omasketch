@@ -4,5 +4,6 @@ Name=omasketch
 GenericName=Sketchpad
 Comment=Quick whiteboard for sketching
 Exec=omasketch
+Icon=omasketch
 Terminal=false
 Categories=Utility;Graphics;
