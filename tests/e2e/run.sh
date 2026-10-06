@@ -1,5 +1,5 @@
 #!/bin/bash
-# End-to-end test: drives the real app through a LeetCode-style session in
+# End-to-end test: drives the real app through a real drawing session in
 # its own hidden sway (never the desktop) and checks real outcomes — the
 # files on disk, the pixels in them, a clean exit, no QML warnings.
 #

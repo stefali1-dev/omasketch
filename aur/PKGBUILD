@@ -1,0 +1,25 @@
+# Maintainer: Stefan Leustean <stefan.leustean57@gmail.com>
+pkgname=omasketch
+pkgver=1.0
+pkgrel=1
+pkgdesc='Fast keyboard-driven sketchpad for Omarchy and other Wayland desktops'
+arch=('x86_64')
+url='https://github.com/stefali1-dev/omasketch'
+license=('MIT')
+# omasketch uses Qt's private RHI API: after a Qt minor update, bump pkgrel to rebuild.
+depends=('qt6-base' 'qt6-declarative' 'hicolor-icon-theme' 'glibc' 'libgcc' 'libstdc++')
+makedepends=('cmake' 'ninja')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('e957f0531af9f2a401606d9f5513b481a088228ec0aad1b964b29b3d9a81cdec')
+
+build() {
+  cmake -S "$pkgname-$pkgver" -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build --target omasketch
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 "$pkgname-$pkgver/LICENSE" -t "$pkgdir/usr/share/licenses/$pkgname"
+}

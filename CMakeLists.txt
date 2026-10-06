@@ -147,3 +147,4 @@ set_tests_properties(e2e PROPERTIES
 include(GNUInstallDirs)
 install(TARGETS omasketch RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES omasketch.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES omasketch.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
